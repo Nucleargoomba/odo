@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111009">
+<title>ODO — drive log</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --dial:#0D0C08; --face:#16150F; --face-2:#1F1D15;
+  --chalk:#EFE9D9; --slate:#847E6C; --amber:#E8A33D; --needle:#D2402A;
+  --cold:#4E86A8;
+  --line:rgba(239,233,217,.10); --line-2:rgba(239,233,217,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--dial);color:var(--chalk);font-family:'Saira',system-ui,sans-serif;
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  padding:0 0 env(safe-area-inset-bottom)}
+.wrap{max-width:560px;margin:0 auto;padding:18px 16px 70px}
+h2{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:13px;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--slate);margin:32px 0 12px}
+h2 span{color:var(--line-2);float:right;letter-spacing:.08em}
+button{font-family:inherit;color:inherit;cursor:pointer}
+input{font-family:'IBM Plex Mono',monospace;background:#0A0906;color:var(--chalk);
+  border:1px solid var(--line-2);border-radius:7px;padding:9px 10px;font-size:13px;width:100%}
+input:focus{outline:2px solid rgba(232,163,61,.5);outline-offset:1px}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+.banner{margin-top:16px;padding:14px 15px;border-radius:11px;
+  border:1px solid rgba(210,64,42,.45);background:rgba(210,64,42,.08);display:none}
+.banner.on{display:block}
+.banner h4{margin:0 0 6px;font-family:'Saira Condensed',sans-serif;font-weight:600;
+  font-size:16px;color:var(--needle);letter-spacing:.02em}
+.banner p{margin:0 0 8px;font-size:13.5px;line-height:1.55}
+.banner code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--amber)}
+.banner .diag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate);
+  line-height:1.7;margin-top:8px;word-break:break-all}
+
+.masthead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.mark{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:26px;
+  letter-spacing:.30em;text-transform:uppercase;margin:0}
+.mark span{color:var(--amber)}
+.rank{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;
+  color:var(--slate);text-transform:uppercase}
+.rank b{color:var(--amber);font-weight:600}
+
+.tabs{display:flex;gap:2px;margin-top:16px;padding:3px;background:#0A0906;
+  border:1px solid var(--line);border-radius:10px}
+.tabs button{flex:1;padding:9px 2px;background:transparent;border:0;border-radius:7px;
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--slate);transition:background .18s,color .18s}
+.tabs button.on{background:var(--face-2);color:var(--chalk);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.tab{display:none}
+.tab.on{display:block;animation:fade .22s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.cluster{margin-top:20px;padding:22px 18px 18px;
+  background:radial-gradient(120% 90% at 50% -10%,rgba(232,163,61,.13),transparent 60%),var(--face);
+  border:1px solid var(--line);border-radius:14px}
+.odo-label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.28em;
+  text-transform:uppercase;color:var(--slate);text-align:center;margin-bottom:12px}
+.odo{display:flex;justify-content:center;gap:3px}
+.cell{position:relative;width:34px;height:52px;overflow:hidden;border-radius:3px;
+  background:linear-gradient(180deg,#080805,#191710 46%,#191710 54%,#080805);
+  border:1px solid rgba(0,0,0,.6);box-shadow:inset 0 0 12px rgba(0,0,0,.9)}
+.cell.tenths{background:linear-gradient(180deg,#2A1005,#4A1D08 46%,#4A1D08 54%,#2A1005)}
+.cell.tenths .roll{color:#F6E3C8}
+.roll{position:absolute;top:0;left:0;width:100%;font-family:'Saira Condensed',sans-serif;
+  font-weight:600;font-size:36px;text-align:center;color:var(--chalk);
+  transition:transform .55s cubic-bezier(.3,1.4,.5,1)}
+.roll i{display:block;height:52px;line-height:52px;font-style:normal}
+.odo-unit{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;
+  letter-spacing:.3em;color:var(--slate);margin-top:10px;text-transform:uppercase}
+.sweep{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.sweep-head{display:flex;justify-content:space-between;align-items:baseline;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--slate)}
+.sweep-head b{color:var(--chalk);font-weight:500}
+.bar{position:relative;height:9px;margin-top:9px;background:#0A0906;border-radius:2px;overflow:hidden}
+.bar::after{content:'';position:absolute;inset:0;left:82%;
+  background:repeating-linear-gradient(90deg,var(--needle) 0 2px,transparent 2px 5px);opacity:.55}
+.fill{height:100%;width:0;background:linear-gradient(90deg,#9A6A1E,var(--amber));
+  border-radius:2px;transition:width .7s ease}
+
+.ignition{margin-top:26px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.btn-start{width:132px;height:132px;border-radius:50%;border:1px solid rgba(210,64,42,.55);
+  background:radial-gradient(circle at 50% 34%,#31160F,#150B08 70%);color:var(--needle);
+  font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:17px;
+  letter-spacing:.2em;text-transform:uppercase;
+  box-shadow:0 0 0 8px rgba(210,64,42,.06),inset 0 1px 0 rgba(255,255,255,.07);
+  transition:transform .12s ease,box-shadow .25s ease}
+.btn-start:active{transform:scale(.965)}
+.btn-start.live{color:var(--amber);border-color:rgba(232,163,61,.6);
+  background:radial-gradient(circle at 50% 34%,#33240D,#140F06 70%);
+  box-shadow:0 0 0 8px rgba(232,163,61,.09),inset 0 1px 0 rgba(255,255,255,.07);
+  animation:pulse 2.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 14px rgba(232,163,61,.05),inset 0 1px 0 rgba(255,255,255,.07)}}
+.hint{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--slate);
+  text-align:center;letter-spacing:.04em;max-width:40ch;line-height:1.6}
+
+.live-panel{display:none;margin-top:22px;padding:20px 18px;background:var(--face);
+  border:1px solid var(--line);border-radius:14px}
+.live-panel.on{display:block}
+.speed{text-align:center}
+.speed .n{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:82px;
+  line-height:.9;color:var(--amber);font-variant-numeric:tabular-nums}
+.speed .u{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.3em;
+  color:var(--slate);text-transform:uppercase}
+.live-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;margin-top:20px;
+  background:var(--line);border-radius:8px;overflow:hidden}
+.live-grid div{background:var(--face-2);padding:12px 8px;text-align:center}
+.live-grid .k{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;
+  color:var(--slate);text-transform:uppercase}
+.live-grid .v{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:24px;
+  margin-top:3px;font-variant-numeric:tabular-nums}
+.gps{margin-top:14px;text-align:center;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;letter-spacing:.08em;color:var(--slate)}
+.gps b{color:var(--amber);font-weight:500}
+
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.stat{background:var(--face);padding:15px 16px}
+.stat .k{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.13em;
+  color:var(--slate);text-transform:uppercase}
+.stat .v{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:27px;
+  margin-top:2px;font-variant-numeric:tabular-nums}
+.stat .v s{font-size:13px;color:var(--slate);text-decoration:none;margin-left:3px}
+
+.drive{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  padding:13px 14px;margin-bottom:8px;background:var(--face);
+  border:1px solid var(--line);border-radius:11px}
+.drive:active{background:var(--face-2)}
+.glyph{width:62px;height:40px;flex:none}
+.glyph path{fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.glyph circle{fill:var(--needle)}
+.d-main{flex:1;min-width:0}
+.d-title{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:17px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-sub{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate);margin-top:2px}
+.d-dist{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:20px;
+  text-align:right;font-variant-numeric:tabular-nums}
+.d-dist s{display:block;font-size:9.5px;color:var(--amber);text-decoration:none;
+  font-family:'IBM Plex Mono',monospace}
+.tag{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--amber);
+  border:1px solid rgba(232,163,61,.35);border-radius:4px;padding:0 4px;margin-left:6px}
+.empty{padding:26px 18px;border:1px dashed var(--line-2);border-radius:12px;
+  color:var(--slate);font-size:14px;text-align:center;line-height:1.6}
+
+.badges{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.badge{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:5px;background:var(--face);border:1px solid var(--line);border-radius:10px;
+  padding:6px;text-align:center;opacity:.32}
+.badge.got{opacity:1;border-color:rgba(232,163,61,.4)}
+.badge .ic{font-size:19px}
+.badge .n{font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.05em;
+  color:var(--slate);text-transform:uppercase;line-height:1.25}
+.badge.got .n{color:var(--chalk)}
+
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.ghost{flex:1;min-width:104px;padding:11px 12px;background:transparent;
+  border:1px solid var(--line-2);border-radius:9px;font-family:'IBM Plex Mono',monospace;
+  font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--chalk)}
+.ghost:active{background:var(--face-2)}
+.ghost.warn{color:var(--needle);border-color:rgba(210,64,42,.35)}
+.ghost.key{color:var(--amber);border-color:rgba(232,163,61,.45)}
+
+/* routes */
+.route{width:100%;text-align:left;padding:14px 15px;margin-bottom:8px;background:var(--face);
+  border:1px solid var(--line);border-radius:11px}
+.route:active{background:var(--face-2)}
+.r-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.r-name{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:18px}
+.r-runs{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);white-space:nowrap}
+.r-times{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:11px;
+  background:var(--line);border-radius:7px;overflow:hidden}
+.r-times div{background:var(--face-2);padding:8px 4px;text-align:center}
+.r-times .k{font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.1em;
+  color:var(--slate);text-transform:uppercase}
+.r-times .v{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:17px;margin-top:2px}
+.r-times .v.best{color:var(--amber)}
+.r-times .v.bad{color:var(--needle)}
+.r-note{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate);
+  margin-top:10px;line-height:1.6}
+.r-note b{color:var(--chalk);font-weight:500}
+.scatter{width:100%;height:74px;margin-top:10px;display:block}
+.scatter .ax{stroke:var(--line-2);stroke-width:1}
+.scatter .md{stroke:var(--slate);stroke-width:1;stroke-dasharray:3 3}
+.scatter circle{fill:var(--amber);opacity:.8}
+.scatter circle.best{fill:var(--needle);opacity:1}
+.scatter text{font-family:'IBM Plex Mono',monospace;font-size:8px;fill:var(--slate)}
+
+/* coverage */
+.cover{padding:16px;background:var(--face);border:1px solid var(--line);border-radius:12px}
+.cover-n{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:46px;
+  line-height:1;color:var(--amber);font-variant-numeric:tabular-nums}
+.cover-n s{font-size:14px;color:var(--slate);text-decoration:none;margin-left:5px}
+.cover-t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate);
+  margin-top:6px;line-height:1.6}
+.cover-t b{color:var(--chalk);font-weight:500}
+
+/* garage */
+.card{padding:16px;background:var(--face);border:1px solid var(--line);
+  border-radius:12px;margin-bottom:10px}
+.card.act{border-color:rgba(232,163,61,.4)}
+.c-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.c-name{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:20px}
+.c-odo{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber)}
+.c-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);margin-top:3px}
+.svc{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.svc-row{margin-bottom:11px}
+.svc-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-size:13.5px}
+.svc-top .n{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:15px}
+.svc-top .d{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate)}
+.svc-top .d.due{color:var(--needle)}
+.svc-top .d.soon{color:var(--amber)}
+.svc-bar{height:3px;margin-top:6px;background:#0A0906;border-radius:2px;overflow:hidden}
+.svc-bar i{display:block;height:100%;background:var(--cold)}
+.svc-bar i.soon{background:var(--amber)}
+.svc-bar i.due{background:var(--needle)}
+.svc-act{display:flex;gap:6px;margin-top:6px}
+.mini{padding:5px 9px;background:transparent;border:1px solid var(--line-2);
+  border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--slate)}
+.mini:active{background:var(--face-2)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.fields label{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--slate);display:block;margin-bottom:4px}
+
+/* perspective */
+.scale-head{margin-top:22px;text-align:center}
+.scale-n{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:62px;
+  line-height:.92;color:var(--amber);font-variant-numeric:tabular-nums}
+.scale-u{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--slate);margin-top:7px}
+.persp{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.pr{padding:13px 15px;background:var(--face);border-bottom:1px solid var(--line)}
+.pr:last-child{border-bottom:0}
+.pr.done{background:linear-gradient(90deg,rgba(232,163,61,.07),transparent 70%),var(--face)}
+.pr-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.pr-t{font-size:14px;line-height:1.35}
+.pr-t b{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:19px;
+  color:var(--amber);font-variant-numeric:tabular-nums;margin-right:5px}
+.pr-n{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);white-space:nowrap}
+.pr-bar{height:2px;margin-top:9px;background:#0A0906;border-radius:1px;overflow:hidden}
+.pr-bar i{display:block;height:100%;background:var(--amber);opacity:.75}
+.pr.done .pr-bar i{background:var(--needle);opacity:.9}
+
+/* sheet */
+.sheet{position:fixed;inset:0;background:rgba(6,6,4,.92);z-index:900;display:none;
+  padding:16px;overflow:auto}
+.sheet.on{display:block}
+.sheet-inner{max-width:560px;margin:0 auto;background:var(--face);
+  border:1px solid var(--line-2);border-radius:14px;overflow:hidden}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;
+  padding:14px 16px;border-bottom:1px solid var(--line)}
+.sheet-head h3{margin:0;font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:19px}
+.x{background:none;border:none;font-size:24px;line-height:1;color:var(--slate);padding:0 4px}
+#map,#allmap{height:300px;background:#0A0906}
+.legend{display:flex;align-items:center;gap:8px;padding:9px 16px;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;
+  color:var(--slate);text-transform:uppercase;border-bottom:1px solid var(--line)}
+.legend i{flex:1;height:4px;border-radius:2px;
+  background:linear-gradient(90deg,#4E86A8,#7FA05F,#E8A33D,#D2402A)}
+.sheet-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line)}
+.sheet-stats div{background:var(--face-2);padding:11px 6px;text-align:center}
+.sheet-stats .k{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.09em;
+  color:var(--slate);text-transform:uppercase}
+.sheet-stats .v{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:19px;margin-top:2px}
+.elev{padding:14px 16px;border-top:1px solid var(--line)}
+.elev svg{width:100%;height:70px;display:block}
+.elev path.f{fill:rgba(232,163,61,.13)}
+.elev path.l{fill:none;stroke:var(--amber);stroke-width:1.6}
+.elev .cap{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;
+  color:var(--slate);text-transform:uppercase;margin-bottom:6px}
+.sheet-foot{padding:12px 16px}
+.leaflet-container{background:#0A0906}
+.leaflet-tile{filter:grayscale(.85) invert(.92) contrast(.85) brightness(.92)}
+.leaflet-control-attribution{background:rgba(0,0,0,.6)!important;color:#7A7466!important;font-size:9px!important}
+.leaflet-control-attribution a{color:#9A9384!important}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(140%);
+  background:var(--face-2);border:1px solid var(--line-2);border-radius:9px;
+  padding:11px 18px;font-family:'IBM Plex Mono',monospace;font-size:12px;z-index:999;
+  transition:transform .3s ease;max-width:88vw;text-align:center}
+.toast.on{transform:translateX(-50%) translateY(0)}
+.foot{margin-top:34px;font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--slate);line-height:1.7}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1 class="mark">Od<span>o</span></h1>
+    <div class="rank">Level <b id="lvl">1</b></div>
+  </div>
+
+  <nav class="tabs">
+    <button class="on" data-tab="tabDrive">Drive</button>
+    <button data-tab="tabLog">Log</button>
+    <button data-tab="tabRoutes">Routes</button>
+    <button data-tab="tabScale">Scale</button>
+    <button data-tab="tabCar">Garage</button>
+  </nav>
+
+  <div class="banner" id="banner">
+    <h4 id="bTitle">Location is blocked here</h4>
+    <p id="bText"></p>
+    <div class="row"><button class="ghost" id="btnTest">Test location now</button></div>
+    <div class="diag" id="bDiag"></div>
+  </div>
+
+  <!-- ============ DRIVE ============ -->
+  <div class="tab on" id="tabDrive">
+    <section class="cluster">
+      <div class="odo-label">Lifetime distance</div>
+      <div class="odo" id="odo"></div>
+      <div class="odo-unit">Kilometres</div>
+      <div class="sweep">
+        <div class="sweep-head"><span>XP <b id="xpNow">0</b></span><span id="xpNext">–</span></div>
+        <div class="bar"><div class="fill" id="xpFill"></div></div>
+      </div>
+    </section>
+
+    <div class="ignition">
+      <button class="btn-start" id="btnRec">Start</button>
+      <div class="hint" id="hint">Keep this screen visible while you drive — a background tab stops receiving GPS.</div>
+    </div>
+
+    <section class="live-panel" id="livePanel">
+      <div class="speed"><div class="n" id="lvSpeed">0</div><div class="u">km/h</div></div>
+      <div class="live-grid">
+        <div><div class="k">Distance</div><div class="v" id="lvDist">0.0</div></div>
+        <div><div class="k">Elapsed</div><div class="v" id="lvTime">0:00</div></div>
+        <div><div class="k">Top</div><div class="v" id="lvTop">0</div></div>
+        <div><div class="k">Climb</div><div class="v" id="lvClimb">0</div></div>
+        <div><div class="k">Peak g</div><div class="v" id="lvG">0.0</div></div>
+        <div><div class="k">Smooth</div><div class="v" id="lvSmooth">100</div></div>
+      </div>
+      <div class="gps" id="lvGps">Waiting for GPS fix…</div>
+    </section>
+
+    <h2>Totals</h2>
+    <div class="stats">
+      <div class="stat"><div class="k">Drives</div><div class="v" id="sDrives">0</div></div>
+      <div class="stat"><div class="k">Time at the wheel</div><div class="v" id="sTime">0<s>h</s></div></div>
+      <div class="stat"><div class="k">Top speed ever</div><div class="v" id="sTop">0<s>km/h</s></div></div>
+      <div class="stat"><div class="k">Day streak</div><div class="v" id="sStreak">0</div></div>
+      <div class="stat"><div class="k">Longest drive</div><div class="v" id="sLong">0<s>km</s></div></div>
+      <div class="stat"><div class="k">This week</div><div class="v" id="sWeek">0<s>km</s></div></div>
+      <div class="stat"><div class="k">Climbed</div><div class="v" id="sClimb">0<s>m</s></div></div>
+      <div class="stat"><div class="k">Sat in traffic</div><div class="v" id="sIdle">0<s>%</s></div></div>
+      <div class="stat"><div class="k">Hardest g</div><div class="v" id="sG">–</div></div>
+      <div class="stat"><div class="k">Smoothness</div><div class="v" id="sSmooth">–</div></div>
+      <div class="stat"><div class="k">Fuel burned</div><div class="v" id="sFuel">–</div></div>
+      <div class="stat"><div class="k">Fuel cost</div><div class="v" id="sCost">–</div></div>
+    </div>
+  </div>
+
+  <!-- ============ LOG ============ -->
+  <div class="tab" id="tabLog">
+    <h2>Drives</h2>
+    <div id="list"></div>
+
+    <h2>Badges</h2>
+    <div class="badges" id="badges"></div>
+
+    <h2>Your data</h2>
+    <div class="row">
+      <button class="ghost" id="btnExport">Export backup</button>
+      <button class="ghost" id="btnGpx">Export GPX</button>
+      <button class="ghost" id="btnImport">Import backup</button>
+    </div>
+    <input type="file" id="fileIn" accept=".json" style="display:none">
+    <div class="foot">
+      Everything is stored on this device only — nothing leaves your phone, and there is no account.
+      Clearing your browser data for this page will erase your drives, so export a backup now and then.
+    </div>
+  </div>
+
+  <!-- ============ ROUTES ============ -->
+  <div class="tab" id="tabRoutes">
+    <h2>Road coverage</h2>
+    <div class="cover">
+      <div class="cover-n" id="covKm">0<s>km of distinct road</s></div>
+      <div class="cover-t" id="covT">Drive somewhere to start filling the map.</div>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost key" id="btnAll">Open the heat map</button>
+      </div>
+    </div>
+
+    <h2>Routes you repeat <span id="rCount"></span></h2>
+    <div id="routes"></div>
+  </div>
+
+  <!-- ============ SCALE ============ -->
+  <div class="tab" id="tabScale">
+    <div class="scale-head">
+      <div class="scale-n" id="scaleKm">0</div>
+      <div class="scale-u">kilometres, measured against things</div>
+    </div>
+    <h2>Distance</h2>
+    <div class="persp" id="persp"></div>
+    <h2>Everything else</h2>
+    <div class="persp" id="perspMisc"></div>
+  </div>
+
+  <!-- ============ GARAGE ============ -->
+  <div class="tab" id="tabCar">
+    <h2>Cars</h2>
+    <div id="cars"></div>
+    <div class="row" style="margin-top:4px">
+      <button class="ghost key" id="btnAddCar">Add a car</button>
+      <button class="ghost" id="btnClaim">Assign old drives</button>
+    </div>
+    <div class="foot">
+      Service intervals count the kilometres you actually log, added to the odometer reading you enter.
+      Fuel figures come from the litres per 100 km you set — an estimate, not a measurement.
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-inner">
+    <div class="sheet-head"><h3 id="shTitle">Drive</h3><button class="x" id="shClose">×</button></div>
+    <div id="map"></div>
+    <div class="legend"><span>Slow</span><i></i><span>Fast</span></div>
+    <div class="sheet-stats">
+      <div><div class="k">Dist</div><div class="v" id="shDist">–</div></div>
+      <div><div class="k">Time</div><div class="v" id="shTime">–</div></div>
+      <div><div class="k">Moving avg</div><div class="v" id="shAvg">–</div></div>
+      <div><div class="k">Top</div><div class="v" id="shTop">–</div></div>
+    </div>
+    <div class="sheet-stats">
+      <div><div class="k">Climb</div><div class="v" id="shClimb">–</div></div>
+      <div><div class="k">Stopped</div><div class="v" id="shIdle">–</div></div>
+      <div><div class="k">Peak g</div><div class="v" id="shG">–</div></div>
+      <div><div class="k">Fuel</div><div class="v" id="shFuel">–</div></div>
+    </div>
+    <div class="elev" id="shElev"></div>
+    <div class="sheet-foot"><button class="ghost warn" id="shDel" style="width:100%">Delete this drive</button></div>
+  </div>
+</div>
+
+<div class="sheet" id="sheetAll">
+  <div class="sheet-inner">
+    <div class="sheet-head"><h3>Every road you've driven</h3><button class="x" id="shAllClose">×</button></div>
+    <div id="allmap"></div>
+    <div class="legend"><span>Once</span><i style="background:linear-gradient(90deg,#3F5B6B,#E8A33D,#D2402A)"></i><span>Often</span></div>
+    <div class="sheet-foot"><div class="hint" id="allInfo"></div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ============ storage ============ */
+const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
+async function load(key,fallback){
+  if(window.storage){try{const r=await window.storage.get(key);if(r)return JSON.parse(r.value)}catch(e){}}
+  try{const v=localStorage.getItem(key);if(v)return JSON.parse(v)}catch(e){}
+  return fallback;
+}
+async function save(key,val){
+  if(window.storage){try{await window.storage.set(key,JSON.stringify(val));return}catch(e){}}
+  try{localStorage.setItem(key,JSON.stringify(val))}
+  catch(e){toast('Storage full — export a backup and delete old drives.')}
+}
+let drives=[], cars=[], settings={activeCar:null,routeNames:{}};
+const $=id=>document.getElementById(id);
+
+/* ============ maths ============ */
+const R=6371000;
+function hav(a,b,c,d){
+  const p=Math.PI/180,dla=(c-a)*p,dlo=(d-b)*p;
+  const x=Math.sin(dla/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(dlo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+const km=m=>m/1000;
+function hms(s){s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h?h+':'+String(m).padStart(2,'0')+':'+String(x).padStart(2,'0')
+          :m+':'+String(x).padStart(2,'0')}
+function mins(s){return Math.round(s/60)+'′'}
+function median(a){if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y);const m=s.length>>1;
+  return s.length%2?s[m]:(s[m-1]+s[m])/2}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('on');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2800)}
+function dayKey(ts){const d=new Date(ts);return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate()}
+function driveName(ts){const h=new Date(ts).getHours();
+  return h<6?'Night drive':h<10?'Morning run':h<12?'Late morning':h<14?'Midday drive'
+        :h<17?'Afternoon drive':h<20?'Evening drive':'Late drive'}
+function fmtDate(ts){return new Date(ts).toLocaleDateString(undefined,{day:'numeric',month:'short'})
+  +' · '+new Date(ts).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}
+function clock(ts){return new Date(ts).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}
+function smoothness(events,secs){
+  const per10=events/Math.max(secs/600,.25);
+  return Math.max(0,Math.min(100,Math.round(100-per10*7)));
+}
+function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
+
+/* ============ xp ============ */
+function driveXp(d){
+  let xp=Math.round(km(d.dist)*10)+5;
+  if(d.dist>=25000)xp+=20;
+  const h=new Date(d.start).getHours();
+  if(h>=21||h<6)xp+=10;
+  if(d.smooth!=null&&d.smooth>=90)xp+=15;
+  return xp;
+}
+const need=n=>50*n*n;
+function levelOf(xp){let n=1;while(xp>=need(n+1))n++;return n}
+function streak(){
+  if(!drives.length)return 0;
+  const days=new Set(drives.map(d=>dayKey(d.start)));
+  let n=0,cur=new Date();
+  if(!days.has(dayKey(cur.getTime())))cur.setDate(cur.getDate()-1);
+  while(days.has(dayKey(cur.getTime()))){n++;cur.setDate(cur.getDate()-1)}
+  return n;
+}
+
+/* ============ fuel ============ */
+function carOf(d){return cars.find(c=>c.id===d.carId)||null}
+function fuelOf(d){const c=carOf(d);
+  return c&&c.l100? km(d.dist)*c.l100/100 : null}
+function costOf(d){const c=carOf(d),l=fuelOf(d);
+  return l!=null&&c.price? l*c.price : null}
+function carKm(c){
+  return (c.odoStart||0)+km(drives.filter(d=>d.carId===c.id).reduce((a,d)=>a+d.dist,0));
+}
+
+/* ============ places & recurring routes ============ */
+const PLACE_R=280;   // metres: two endpoints this close count as the same place
+function buildRoutes(){
+  const places=[];
+  const findPlace=(lat,lng)=>{
+    for(const p of places) if(hav(p.lat,p.lng,lat,lng)<PLACE_R){p.n++;return p}
+    const p={id:places.length,lat,lng,n:1};places.push(p);return p;
+  };
+  const sorted=drives.filter(d=>d.pts&&d.pts.length>1).sort((a,b)=>a.start-b.start);
+  const map=new Map();
+  sorted.forEach(d=>{
+    const a=d.pts[0], b=d.pts[d.pts.length-1];
+    const pa=findPlace(a[0],a[1]), pb=findPlace(b[0],b[1]);
+    if(pa.id===pb.id && d.dist<1500)return;          // shuffling round the block
+    const key=pa.id+'>'+pb.id;
+    if(!map.has(key))map.set(key,{key,from:pa,to:pb,runs:[]});
+    map.get(key).runs.push(d);
+  });
+  // letters by how often a place is used
+  const rank=places.slice().sort((x,y)=>y.n-x.n);
+  const letter=p=>{const i=rank.indexOf(p);
+    return i<26?String.fromCharCode(65+i):'#'+i};
+  const out=[];
+  map.forEach(r=>{
+    if(r.runs.length<2)return;
+    const dists=r.runs.map(d=>d.dist), md=median(dists);
+    const runs=r.runs.filter(d=>Math.abs(d.dist-md)<md*0.3);   // drop detours
+    if(runs.length<2)return;
+    const durs=runs.map(d=>d.dur);
+    out.push({
+      key:r.key,
+      name:settings.routeNames[r.key]||(letter(r.from)+' → '+letter(r.to)),
+      runs:runs.sort((a,b)=>b.start-a.start),
+      dist:md, best:Math.min(...durs), worst:Math.max(...durs),
+      med:median(durs), last:runs[0].dur, lastStart:runs[0].start
+    });
+  });
+  return out.sort((a,b)=>b.runs.length-a.runs.length);
+}
+function bestWindow(runs){
+  const buck=new Map();
+  runs.forEach(d=>{
+    const t=new Date(d.start), b=Math.floor((t.getHours()*60+t.getMinutes())/15);
+    if(!buck.has(b))buck.set(b,[]);
+    buck.get(b).push(d.dur);
+  });
+  let best=null;
+  buck.forEach((v,b)=>{
+    if(v.length<2)return;
+    const m=median(v);
+    if(!best||m<best.med)best={b,med:m,n:v.length};
+  });
+  if(!best)return null;
+  const h=Math.floor(best.b/4), m=(best.b%4)*15;
+  return {label:String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'),med:best.med,n:best.n};
+}
+
+/* ============ coverage ============ */
+const CELL=100;                       // metres
+let coverCache=null;
+function cellKey(lat,lng){
+  const dLat=CELL/111320, dLng=CELL/(111320*Math.cos(lat*Math.PI/180));
+  return Math.round(lat/dLat)+':'+Math.round(lng/dLng);
+}
+function coverage(){
+  if(coverCache)return coverCache;
+  const cells=new Map();
+  drives.forEach(d=>{
+    if(!d.pts)return;
+    for(let i=0;i<d.pts.length;i++){
+      const p=d.pts[i];
+      cells.set(cellKey(p[0],p[1]),(cells.get(cellKey(p[0],p[1]))||0)+1);
+      if(i){ // fill the gap so fast stretches don't leave holes
+        const q=d.pts[i-1], gap=hav(q[0],q[1],p[0],p[1]);
+        const steps=Math.min(60,Math.floor(gap/60));
+        for(let s=1;s<steps;s++){
+          const f=s/steps, la=q[0]+(p[0]-q[0])*f, lo=q[1]+(p[1]-q[1])*f;
+          const k=cellKey(la,lo);
+          cells.set(k,(cells.get(k)||0)+1);
+        }
+      }
+    }
+  });
+  coverCache={cells,unique:cells.size};
+  return coverCache;
+}
+
+/* ============ odometer ============ */
+function drawOdo(kmTotal){
+  const box=$('odo');
+  const whole=Math.floor(kmTotal), tenth=Math.floor((kmTotal-whole)*10);
+  const digits=String(whole).padStart(5,'0').slice(-5).split('').concat([String(tenth)]);
+  if(box.children.length!==6){
+    box.innerHTML='';
+    digits.forEach((_,i)=>{
+      const c=document.createElement('div');
+      c.className='cell'+(i===5?' tenths':'');
+      const r=document.createElement('div');r.className='roll';
+      for(let n=0;n<=10;n++){const s=document.createElement('i');s.textContent=n%10;r.appendChild(s)}
+      c.appendChild(r);box.appendChild(c);
+    });
+  }
+  digits.forEach((d,i)=>{
+    box.children[i].querySelector('.roll').style.transform='translateY(-'+(Number(d)*52)+'px)';
+  });
+}
+
+/* ============ route glyph ============ */
+function speedColor(kmh){
+  const t=Math.max(0,Math.min(1,kmh/130));
+  const stops=[[0,'#4E86A8'],[.35,'#7FA05F'],[.7,'#E8A33D'],[1,'#D2402A']];
+  for(let i=1;i<stops.length;i++){
+    if(t<=stops[i][0]){
+      const a=stops[i-1],b=stops[i],f=(t-a[0])/(b[0]-a[0]);
+      const px=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+      const A=px(a[1]),B=px(b[1]);
+      return 'rgb('+A.map((v,j)=>Math.round(v+(B[j]-v)*f)).join(',')+')';
+    }
+  }
+  return '#D2402A';
+}
+function glyph(pts){
+  if(!pts||pts.length<2)return '<svg class="glyph" viewBox="0 0 62 40"></svg>';
+  const step=Math.max(1,Math.floor(pts.length/60));
+  const p=pts.filter((_,i)=>i%step===0||i===pts.length-1);
+  const la=p.map(x=>x[0]),lo=p.map(x=>x[1]);
+  const y0=Math.min(...la),y1=Math.max(...la),x0=Math.min(...lo),x1=Math.max(...lo);
+  const mid=(y0+y1)/2*Math.PI/180;
+  const w=Math.max((x1-x0)*Math.cos(mid),1e-6),h=Math.max(y1-y0,1e-6);
+  const s=Math.min(54/w,32/h), ox=(62-w*s)/2, oy=(40-h*s)/2;
+  const xy=q=>[ox+(q[1]-x0)*Math.cos(mid)*s, 40-oy-(q[0]-y0)*s];
+  let segs='';
+  for(let i=1;i<p.length;i++){
+    const a=xy(p[i-1]),b=xy(p[i]);
+    segs+='<path d="M'+a[0].toFixed(1)+' '+a[1].toFixed(1)+'L'+b[0].toFixed(1)+' '+b[1].toFixed(1)+
+          '" stroke="'+speedColor(p[i][3]||0)+'"/>';
+  }
+  const e=xy(p[p.length-1]);
+  return '<svg class="glyph" viewBox="0 0 62 40">'+segs+
+    '<circle cx="'+e[0].toFixed(1)+'" cy="'+e[1].toFixed(1)+'" r="2.6"/></svg>';
+}
+
+/* ============ perspective ============ */
+const REFS=[
+  {km:4.259,  t:'the Zandvoort circuit'},
+  {km:13.626, t:'the Le Mans Circuit de la Sarthe'},
+  {km:20.832, t:'the Nürburgring Nordschleife'},
+  {km:60.725, t:'the Isle of Man TT Mountain Course'},
+  {km:106,    t:'the A2 down to Maastricht'},
+  {km:435,    t:'the drive from Eindhoven to Paris'},
+  {km:1300,   t:'the run through the Alps to Milan'},
+  {km:3130,   t:'every motorway in the Netherlands'},
+  {km:3940,   t:'Route 66, end to end'},
+  {km:10600,  t:'a crossing of the Sahara'},
+  {km:21196,  t:'the Great Wall of China'},
+  {km:40075,  t:'a lap of the Earth, round the equator'},
+  {km:384400, t:'the drive to the Moon'}
+];
+function pct(x){return x>=100?Math.round(x)+'×':x>=10?x.toFixed(1)+'×':Math.round(x*100)+'%'}
+function prow(x,label,note){
+  const done=x>=1;
+  return '<div class="pr'+(done?' done':'')+'"><div class="pr-top">'+
+    '<div class="pr-t"><b>'+pct(x)+'</b>'+label+'</div><div class="pr-n">'+note+'</div></div>'+
+    '<div class="pr-bar"><i style="width:'+Math.min(100,x*100).toFixed(1)+'%"></i></div></div>';
+}
+function renderPersp(totKm,hours,climb,topKmh,litres,cost){
+  $('scaleKm').textContent=Math.round(totKm).toLocaleString();
+  $('persp').innerHTML=REFS.map(r=>{
+    const x=totKm/r.km;
+    const note=x>=1?Math.floor(x)+'× done · '+r.km.toLocaleString()+' km each'
+      :(r.km-totKm).toLocaleString(undefined,{maximumFractionDigits:0})+' km to go';
+    return prow(x,' of '+r.t,note);
+  }).join('');
+  const m=[];
+  m.push(prow(hours/24,' of a full Le Mans, sat at the wheel',hours.toFixed(1)+' h logged'));
+  if(climb>0){
+    m.push(prow(climb/8849,' of the height of Everest, climbed by road',Math.round(climb).toLocaleString()+' m'));
+    m.push(prow(climb/1071,' of the climb up Alpe d’Huez',Math.round(climb).toLocaleString()+' m'));
+  }
+  if(topKmh>0){
+    m.push(prow(topKmh/305,' of a Bugatti Chiron flat out',topKmh+' km/h best'));
+    m.push(prow(topKmh/1227,' of the speed of sound',topKmh+' km/h best'));
+  }
+  if(litres>0){
+    m.push(prow(litres/150,' of a filled bathtub, in fuel',litres.toFixed(0)+' litres'));
+    m.push(prow(litres*2.31/1000,' of a tonne of CO₂ out of the exhaust',
+      (litres*2.31).toFixed(0)+' kg CO₂'));
+  }
+  if(cost>0)m.push(prow(cost/400,' of a decent set of tyres, in fuel money','€'+cost.toFixed(0)+' spent'));
+  $('perspMisc').innerHTML=m.join('');
+}
+
+/* ============ badges ============ */
+const BADGES=[
+  {ic:'🔑',n:'First drive',f:()=>drives.length>=1},
+  {ic:'💯',n:'100 km',f:t=>t>=1e5},
+  {ic:'🏔',n:'1 000 km',f:t=>t>=1e6},
+  {ic:'🌍',n:'10 000 km',f:t=>t>=1e7},
+  {ic:'🌙',n:'Night owl',f:()=>drives.some(d=>{const h=new Date(d.start).getHours();return h>=23||h<5})},
+  {ic:'🛣',n:'100 km run',f:()=>drives.some(d=>d.dist>=1e5)},
+  {ic:'🔥',n:'7 day streak',f:()=>streak()>=7},
+  {ic:'🏁',n:'50 drives',f:()=>drives.length>=50},
+  {ic:'🧭',n:'20 new cells',f:()=>coverage().unique>=200},
+  {ic:'🔁',n:'A route ×10',f:()=>buildRoutes().some(r=>r.runs.length>=10)},
+  {ic:'🪶',n:'Smooth 95',f:()=>drives.some(d=>d.smooth!=null&&d.smooth>=95)},
+  {ic:'⛰',n:'1 000 m climbed',f:()=>drives.reduce((a,d)=>a+(d.gain||0),0)>=1000}
+];
+
+/* ============ render ============ */
+function render(){
+  const totM=drives.reduce((a,d)=>a+d.dist,0);
+  const totSec=drives.reduce((a,d)=>a+d.dur,0);
+  const idleSec=drives.reduce((a,d)=>a+(d.idle||0),0);
+  const climb=drives.reduce((a,d)=>a+(d.gain||0),0);
+  const totXp=drives.reduce((a,d)=>a+driveXp(d),0)+streak()*20;
+  const lvl=levelOf(totXp), base=need(lvl), nxt=need(lvl+1);
+  const topKmh=Math.round(Math.max(0,...drives.map(d=>d.top))*3.6);
+  const litres=drives.reduce((a,d)=>a+(fuelOf(d)||0),0);
+  const cost=drives.reduce((a,d)=>a+(costOf(d)||0),0);
+
+  drawOdo(km(totM));
+  $('lvl').textContent=lvl;
+  $('xpNow').textContent=totXp.toLocaleString();
+  $('xpNext').textContent=(nxt-totXp).toLocaleString()+' xp to level '+(lvl+1);
+  $('xpFill').style.width=Math.max(2,Math.min(100,(totXp-base)/(nxt-base)*100))+'%';
+
+  $('sDrives').textContent=drives.length;
+  $('sTime').innerHTML=(totSec/3600).toFixed(1)+'<s>h</s>';
+  $('sTop').innerHTML=topKmh+'<s>km/h</s>';
+  $('sStreak').textContent=streak();
+  $('sLong').innerHTML=km(Math.max(0,...drives.map(d=>d.dist))).toFixed(1)+'<s>km</s>';
+  const wk=Date.now()-6048e5;
+  $('sWeek').innerHTML=km(drives.filter(d=>d.start>wk).reduce((a,d)=>a+d.dist,0)).toFixed(1)+'<s>km</s>';
+  $('sClimb').innerHTML=Math.round(climb).toLocaleString()+'<s>m</s>';
+  $('sIdle').innerHTML=(totSec?Math.round(idleSec/totSec*100):0)+'<s>%</s>';
+  const gs=drives.map(d=>d.g).filter(v=>v!=null);
+  const sm=drives.map(d=>d.smooth).filter(v=>v!=null);
+  $('sG').innerHTML=gs.length?Math.max(...gs).toFixed(2)+'<s>g</s>':'–';
+  $('sSmooth').innerHTML=sm.length?Math.round(sm.reduce((a,b)=>a+b,0)/sm.length)+'<s>/100</s>':'–';
+  $('sFuel').innerHTML=litres>0?litres.toFixed(0)+'<s>L</s>':'–';
+  $('sCost').innerHTML=cost>0?'€'+Math.round(cost).toLocaleString():'–';
+
+  renderDrives();
+  renderRoutes();
+  renderCoverage(totM);
+  renderCars();
+  renderPersp(km(totM),totSec/3600,climb,topKmh,litres,cost);
+  $('badges').innerHTML=BADGES.map(b=>
+    '<div class="badge'+(b.f(totM)?' got':'')+'"><div class="ic">'+b.ic+'</div><div class="n">'+b.n+'</div></div>'
+  ).join('');
+}
+
+function renderDrives(){
+  const list=$('list');
+  if(!drives.length){
+    list.innerHTML='<div class="empty">No drives yet.<br>Hit start when you pull out.</div>';return;
+  }
+  list.innerHTML=drives.slice().sort((a,b)=>b.start-a.start).map(d=>{
+    const c=carOf(d);
+    return '<button class="drive" data-id="'+d.id+'">'+glyph(d.pts)+
+      '<div class="d-main"><div class="d-title">'+esc(d.name)+
+      (c?'<span class="tag">'+esc(c.name.slice(0,10))+'</span>':'')+'</div>'+
+      '<div class="d-sub">'+fmtDate(d.start)+' · '+hms(d.dur)+'</div></div>'+
+      '<div class="d-dist">'+km(d.dist).toFixed(1)+'<s>+'+driveXp(d)+' xp</s></div></button>';
+  }).join('');
+  list.querySelectorAll('.drive').forEach(b=>b.onclick=()=>openDrive(b.dataset.id));
+}
+
+function renderRoutes(){
+  const rs=buildRoutes(), box=$('routes');
+  $('rCount').textContent=rs.length?rs.length:'';
+  if(!rs.length){
+    box.innerHTML='<div class="empty">Nothing repeated yet.<br>Drive the same trip twice and it shows up here with your times.</div>';
+    return;
+  }
+  box.innerHTML=rs.map(r=>{
+    const w=bestWindow(r.runs);
+    const dl=r.last-r.med, sign=dl<0?'−':'+';
+    const cls=r.last<=r.best*1.02?'best':(dl>r.med*.12?'bad':'');
+    return '<div class="route" data-key="'+r.key+'">'+
+      '<div class="r-top"><div class="r-name">'+esc(r.name)+'</div>'+
+      '<div class="r-runs">'+r.runs.length+' runs · '+km(r.dist).toFixed(1)+' km</div></div>'+
+      '<div class="r-times">'+
+        '<div><div class="k">Last</div><div class="v '+cls+'">'+mins(r.last)+'</div></div>'+
+        '<div><div class="k">Median</div><div class="v">'+mins(r.med)+'</div></div>'+
+        '<div><div class="k">Best</div><div class="v best">'+mins(r.best)+'</div></div>'+
+        '<div><div class="k">Worst</div><div class="v">'+mins(r.worst)+'</div></div>'+
+      '</div>'+
+      scatter(r)+
+      '<div class="r-note">Last run <b>'+sign+Math.abs(Math.round(dl/60))+' min</b> against your median'+
+      (w?' · quickest when you leave around <b>'+w.label+'</b> ('+mins(w.med)+', '+w.n+' runs)':'')+
+      '</div></div>';
+  }).join('');
+  box.querySelectorAll('.route').forEach(b=>b.onclick=()=>renameRoute(b.dataset.key));
+}
+function scatter(r){
+  const pts=r.runs.map(d=>{const t=new Date(d.start);
+    return {x:t.getHours()*60+t.getMinutes(),y:d.dur}});
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+  const x0=Math.min(...xs)-8,x1=Math.max(...xs)+8;
+  const y0=Math.min(...ys)*.96,y1=Math.max(...ys)*1.04;
+  const W=320,H=74,P=16;
+  const px=v=>P+(v-x0)/Math.max(x1-x0,1)*(W-P*2);
+  const py=v=>H-P-(v-y0)/Math.max(y1-y0,1)*(H-P*2-6);
+  const best=Math.min(...ys);
+  const lab=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(Math.round(m%60)).padStart(2,'0');
+  return '<svg class="scatter" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+    '<line class="ax" x1="'+P+'" y1="'+(H-P)+'" x2="'+(W-P)+'" y2="'+(H-P)+'"/>'+
+    '<line class="md" x1="'+P+'" y1="'+py(r.med).toFixed(1)+'" x2="'+(W-P)+'" y2="'+py(r.med).toFixed(1)+'"/>'+
+    pts.map(p=>'<circle cx="'+px(p.x).toFixed(1)+'" cy="'+py(p.y).toFixed(1)+'" r="3.4"'+
+      (p.y===best?' class="best"':'')+'/>').join('')+
+    '<text x="'+P+'" y="'+(H-4)+'">'+lab(x0)+'</text>'+
+    '<text x="'+(W-P)+'" y="'+(H-4)+'" text-anchor="end">'+lab(x1)+'</text>'+
+    '<text x="'+P+'" y="10">departure time vs duration</text></svg>';
+}
+function renameRoute(key){
+  const cur=settings.routeNames[key]||'';
+  const v=prompt('Name this route (e.g. "Work, morning")',cur);
+  if(v===null)return;
+  if(v.trim())settings.routeNames[key]=v.trim().slice(0,40);
+  else delete settings.routeNames[key];
+  save(K_SET,settings);renderRoutes();
+}
+
+function renderCoverage(totM){
+  const c=coverage();
+  const uKm=c.unique*CELL/1000;
+  $('covKm').innerHTML=uKm.toFixed(1)+'<s>km of distinct road</s>';
+  if(!drives.length){$('covT').textContent='Drive somewhere to start filling the map.';return}
+  const rep=km(totM)/Math.max(uKm,.1);
+  $('covT').innerHTML='You have driven <b>'+km(totM).toFixed(0)+' km</b> over <b>'+
+    uKm.toFixed(0)+' km</b> of different road — every stretch <b>'+rep.toFixed(1)+
+    '×</b> on average. New roads are worth more than new kilometres.';
+}
+
+/* ============ garage ============ */
+function renderCars(){
+  const box=$('cars');
+  if(!cars.length){
+    box.innerHTML='<div class="empty">No car yet.<br>Add one to track service intervals and fuel.</div>';
+    return;
+  }
+  box.innerHTML=cars.map(c=>{
+    const total=carKm(c), mine=km(drives.filter(d=>d.carId===c.id).reduce((a,d)=>a+d.dist,0));
+    const svc=(c.services||[]).map(s=>{
+      const due=s.lastKm+s.everyKm, left=due-total;
+      const pctUsed=Math.max(0,Math.min(100,(1-left/s.everyKm)*100));
+      const cls=left<=0?'due':left<=500?'soon':'';
+      const txt=left<=0?'overdue by '+Math.abs(Math.round(left)).toLocaleString()+' km'
+                       :Math.round(left).toLocaleString()+' km to go';
+      return '<div class="svc-row"><div class="svc-top"><span class="n">'+esc(s.name)+'</span>'+
+        '<span class="d '+cls+'">'+txt+'</span></div>'+
+        '<div class="svc-bar"><i class="'+cls+'" style="width:'+pctUsed.toFixed(0)+'%"></i></div>'+
+        '<div class="svc-act"><button class="mini" data-done="'+c.id+'|'+s.id+'">Done now</button>'+
+        '<button class="mini" data-delsvc="'+c.id+'|'+s.id+'">Remove</button></div></div>';
+    }).join('');
+    return '<div class="card'+(settings.activeCar===c.id?' act':'')+'">'+
+      '<div class="c-head"><div class="c-name">'+esc(c.name)+'</div>'+
+      '<div class="c-odo">'+Math.round(total).toLocaleString()+' km</div></div>'+
+      '<div class="c-meta">'+mine.toFixed(0)+' km logged here'+
+      (c.l100?' · '+c.l100+' L/100 km':'')+(c.price?' · €'+c.price+'/L':'')+
+      (settings.activeCar===c.id?' · active':'')+'</div>'+
+      '<div class="svc">'+(svc||'<div class="c-meta">No service intervals set.</div>')+'</div>'+
+      '<div class="row" style="margin-top:10px">'+
+        (settings.activeCar===c.id?'':'<button class="ghost" data-use="'+c.id+'">Use this car</button>')+
+        '<button class="ghost" data-svc="'+c.id+'">Add interval</button>'+
+        '<button class="ghost" data-edit="'+c.id+'">Edit</button>'+
+      '</div></div>';
+  }).join('');
+
+  box.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{
+    settings.activeCar=b.dataset.use;await save(K_SET,settings);render();toast('Active car set.')});
+  box.querySelectorAll('[data-svc]').forEach(b=>b.onclick=()=>addService(b.dataset.svc));
+  box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editCar(b.dataset.edit));
+  box.querySelectorAll('[data-done]').forEach(b=>b.onclick=async()=>{
+    const [cid,sid]=b.dataset.done.split('|');
+    const c=cars.find(x=>x.id===cid), s=c.services.find(x=>x.id===sid);
+    s.lastKm=Math.round(carKm(c));await save(K_CAR,cars);render();
+    toast(s.name+' marked done at '+s.lastKm.toLocaleString()+' km.')});
+  box.querySelectorAll('[data-delsvc]').forEach(b=>b.onclick=async()=>{
+    const [cid,sid]=b.dataset.delsvc.split('|');
+    const c=cars.find(x=>x.id===cid);
+    c.services=c.services.filter(x=>x.id!==sid);await save(K_CAR,cars);render()});
+}
+async function editCar(id){
+  const c=id?cars.find(x=>x.id===id):null;
+  const name=prompt('Car name',c?c.name:'');
+  if(name===null||!name.trim())return;
+  const odo=prompt('Current odometer reading in km (the real one on the dash)',c?c.odoStart:'0');
+  if(odo===null)return;
+  const l100=prompt('Average fuel use, litres per 100 km (blank to skip)',c&&c.l100?c.l100:'');
+  const price=prompt('Fuel price per litre in € (blank to skip)',c&&c.price?c.price:'');
+  const rec={
+    id:c?c.id:'c'+Date.now(),name:name.trim().slice(0,30),
+    odoStart:Number(odo)||0,
+    l100:l100?Number(l100)||null:null,
+    price:price?Number(price)||null:null,
+    services:c?c.services||[]:[]
+  };
+  if(c)Object.assign(c,rec); else cars.push(rec);
+  if(!settings.activeCar){settings.activeCar=rec.id;await save(K_SET,settings)}
+  await save(K_CAR,cars);render();toast('Saved.');
+}
+async function addService(cid){
+  const c=cars.find(x=>x.id===cid);
+  const name=prompt('What service? (oil, timing belt, tyres…)','Oil change');
+  if(name===null||!name.trim())return;
+  const every=prompt('Every how many km?','8000');
+  if(every===null||!Number(every))return;
+  const last=prompt('Last done at which odometer reading?',String(Math.round(carKm(c))));
+  if(last===null)return;
+  c.services=c.services||[];
+  c.services.push({id:'s'+Date.now(),name:name.trim().slice(0,28),
+    everyKm:Number(every),lastKm:Number(last)||0});
+  await save(K_CAR,cars);render();toast('Interval added.');
+}
+$('btnAddCar').onclick=()=>editCar(null);
+$('btnClaim').onclick=async()=>{
+  if(!settings.activeCar)return toast('Add a car first.');
+  const n=drives.filter(d=>!d.carId).length;
+  if(!n)return toast('Every drive already has a car.');
+  if(!confirm('Assign '+n+' unassigned drives to the active car?'))return;
+  drives.forEach(d=>{if(!d.carId)d.carId=settings.activeCar});
+  await save(K_DRV,drives);render();toast(n+' drives assigned.');
+};
+
+/* ============ environment check ============ */
+function diagnose(){
+  const framed = window.self!==window.top;
+  const secure = window.isSecureContext;
+  const proto = location.protocol;
+  const lines = ['origin: '+(location.origin||proto)+
+    ' · secure: '+secure+' · framed: '+framed+
+    ' · geolocation: '+('geolocation' in navigator)];
+  $('bDiag').textContent=lines.join('\n');
+
+  let title=null,text=null;
+  if(!('geolocation' in navigator)){
+    title='This browser has no location API';
+    text='Try Chrome or Safari.';
+  }else if(proto==='file:'){
+    title='Opened as a local file — GPS is blocked';
+    text='Chrome only gives location to secure origins, and <code>file://</code> is not one. '+
+      'It refuses without even showing a permission prompt, which is what you saw. '+
+      'Host the file at an <code>https://</code> address and it will work — see the note below.';
+  }else if(framed){
+    title='Running inside a preview frame';
+    text='Embedded previews block location. Open the page in its own browser tab.';
+  }else if(!secure){
+    title='This page is not on a secure origin';
+    text='Location needs <code>https://</code>. Reload the page over https.';
+  }
+  if(title){
+    $('bTitle').textContent=title;
+    $('bText').innerHTML=text;
+    $('banner').classList.add('on');
+  }
+  return !title;
+}
+$('btnTest').onclick=()=>{
+  $('bDiag').textContent='Asking for a fix…';
+  if(!('geolocation' in navigator))return $('bDiag').textContent='No geolocation API at all.';
+  navigator.geolocation.getCurrentPosition(
+    p=>{$('bDiag').textContent='Got a fix: '+p.coords.latitude.toFixed(4)+', '+
+        p.coords.longitude.toFixed(4)+' (±'+Math.round(p.coords.accuracy)+' m). '+
+        'Location works here — recording will too.';
+      $('banner').classList.remove('on');toast('GPS works.')},
+    e=>{$('bDiag').textContent='Error '+e.code+' — '+
+        (e.code===1?'PERMISSION_DENIED. Either you declined it, or the origin is not allowed to ask.'
+        :e.code===2?'POSITION_UNAVAILABLE. No fix — try outdoors, or turn on device location.'
+        :'TIMEOUT. No fix within 20 s.')+
+        (e.message?' ['+e.message+']':'')},
+    {enableHighAccuracy:true,timeout:20000,maximumAge:0});
+};
+
+/* ============ recording ============ */
+let rec=null,watchId=null,tick=null,wake=null;
+const MAXACC=45, MAXSPD=90;
+let motionOn=false,gBase=9.81,gPeak=0,harsh=0;
+
+function onMotion(e){
+  const a=e.accelerationIncludingGravity||e.acceleration;
+  if(!a||a.x==null)return;
+  const mag=Math.hypot(a.x,a.y,a.z);
+  gBase=gBase*.995+mag*.005;
+  const dev=Math.abs(mag-gBase);
+  if(dev>25)return;
+  const g=dev/9.81;
+  if(g>gPeak)gPeak=g;
+  if(dev>3.2)harsh++;
+}
+async function askMotion(){
+  try{
+    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){
+      if(await DeviceMotionEvent.requestPermission()!=='granted')return false;
+    }
+    window.addEventListener('devicemotion',onMotion);motionOn=true;return true;
+  }catch(e){return false}
+}
+async function start(){
+  if(!navigator.geolocation)return toast('This browser has no GPS access.');
+  rec={start:Date.now(),dist:0,top:0,pts:[],last:null,lastAcc:null,gain:0,alt:null,idle:0};
+  gPeak=0;harsh=0;gBase=9.81;
+  await askMotion();
+  $('btnRec').textContent='Stop';$('btnRec').classList.add('live');
+  $('livePanel').classList.add('on');
+  $('hint').textContent='Recording. Leaving this screen will pause GPS updates.';
+  watchId=navigator.geolocation.watchPosition(onPos,onErr,
+    {enableHighAccuracy:true,maximumAge:1000,timeout:25000});
+  tick=setInterval(()=>{
+    $('lvTime').textContent=hms((Date.now()-rec.start)/1000);
+    if(rec.lastAcc&&Date.now()-rec.lastAcc>6000)$('lvSpeed').textContent='0';
+  },500);
+  try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen')}catch(e){}
+}
+function onPos(p){
+  const c=p.coords;
+  if(c.accuracy>MAXACC){$('lvGps').innerHTML='Weak signal · ±'+Math.round(c.accuracy)+' m';return}
+  const now=p.timestamp||Date.now();
+  let spd=(c.speed!=null&&c.speed>=0)?c.speed:0;
+  if(rec.last){
+    const dt=(now-rec.last.t)/1000;
+    if(dt<=0)return;
+    const d=hav(rec.last.lat,rec.last.lng,c.latitude,c.longitude);
+    const derived=d/dt;
+    if(derived>MAXSPD)return;
+    if(c.speed==null||c.speed<0)spd=derived;
+    if(d>4||spd>1.5)rec.dist+=d; else rec.idle+=Math.min(dt,20);
+  }
+  if(c.altitude!=null&&(c.altitudeAccuracy==null||c.altitudeAccuracy<18)){
+    if(rec.alt==null)rec.alt=c.altitude;
+    const da=c.altitude-rec.alt;
+    if(Math.abs(da)>3){if(da>0)rec.gain+=da;rec.alt=c.altitude}
+  }
+  if(spd>rec.top&&c.accuracy<25)rec.top=spd;
+  rec.lastAcc=Date.now();
+  const t=Math.round((now-rec.start)/1000);
+  const keep=!rec.last||hav(rec.last.lat,rec.last.lng,c.latitude,c.longitude)>12||t-rec.last.st>8;
+  if(keep){
+    rec.pts.push([+c.latitude.toFixed(5),+c.longitude.toFixed(5),t,+(spd*3.6).toFixed(1),
+      c.altitude!=null?Math.round(c.altitude):null]);
+    rec.last={lat:c.latitude,lng:c.longitude,t:now,st:t};
+  }else rec.last.t=now;
+  $('lvSpeed').textContent=Math.round(spd*3.6);
+  $('lvDist').textContent=km(rec.dist).toFixed(1);
+  $('lvTop').textContent=Math.round(rec.top*3.6);
+  $('lvClimb').textContent=Math.round(rec.gain);
+  $('lvG').textContent=motionOn?gPeak.toFixed(1):'–';
+  $('lvSmooth').textContent=motionOn?smoothness(harsh,(Date.now()-rec.start)/1000):'–';
+  $('lvGps').innerHTML='Fix ±'+Math.round(c.accuracy)+' m · <b>'+rec.pts.length+'</b> points';
+}
+function onErr(e){
+  $('lvGps').textContent=e.code===1
+    ?'Location denied (error 1) — see the note at the top of the page.'
+    :e.code===2?'No fix available (error 2) — is device location switched on?'
+    :'No GPS fix yet (error 3). Under open sky this takes a few seconds.';
+  if(e.code===1)diagnose();
+}
+async function stop(){
+  navigator.geolocation.clearWatch(watchId);clearInterval(tick);
+  if(wake){try{await wake.release()}catch(e){}wake=null}
+  if(motionOn){window.removeEventListener('devicemotion',onMotion);motionOn=false}
+  $('btnRec').textContent='Start';$('btnRec').classList.remove('live');
+  $('livePanel').classList.remove('on');
+  $('hint').textContent='Keep this screen visible while you drive — a background tab stops receiving GPS.';
+  const dur=(Date.now()-rec.start)/1000;
+  const d={id:String(rec.start),name:driveName(rec.start),start:rec.start,dur,
+    dist:rec.dist,top:rec.top,pts:rec.pts,gain:Math.round(rec.gain),
+    idle:Math.round(rec.idle),g:gPeak?+gPeak.toFixed(2):null,
+    smooth:harsh||gPeak?smoothness(harsh,dur):null,carId:settings.activeCar||null};
+  rec=null;
+  if(d.dist<150||d.pts.length<3)return toast('Too short to save — nothing recorded.');
+  const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20);
+  drives.push(d);coverCache=null;await save(K_DRV,drives);
+  render();
+  const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20);
+  const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
+  if(rt&&d.dur<=rt.best) toast('Best time yet on '+rt.name+' — '+mins(d.dur));
+  else if(after>before) toast('Level '+after+'. '+km(d.dist).toFixed(1)+' km logged.');
+  else toast(km(d.dist).toFixed(1)+' km · +'+driveXp(d)+' xp');
+}
+$('btnRec').onclick=()=>rec?stop():start();
+document.addEventListener('visibilitychange',async()=>{
+  if(document.visibilityState==='visible'&&rec&&'wakeLock' in navigator){
+    try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+  }
+});
+window.addEventListener('beforeunload',e=>{if(rec){e.preventDefault();e.returnValue=''}});
+
+/* ============ maps ============ */
+let map,layer,allMap,allLayer;
+function openDrive(id){
+  const d=drives.find(x=>x.id===id);if(!d)return;
+  $('shTitle').textContent=d.name;
+  $('shDist').textContent=km(d.dist).toFixed(1);
+  $('shTime').textContent=hms(d.dur);
+  const moving=Math.max(d.dur-(d.idle||0),1);
+  $('shAvg').textContent=Math.round(km(d.dist)/(moving/3600));
+  $('shTop').textContent=Math.round(d.top*3.6);
+  $('shClimb').textContent=(d.gain||0)+' m';
+  $('shIdle').textContent=d.idle?Math.round(d.idle/60)+'′':'0′';
+  $('shG').textContent=d.g!=null?d.g.toFixed(2):'–';
+  const l=fuelOf(d),cst=costOf(d);
+  $('shFuel').textContent=l!=null?(l.toFixed(1)+' L'+(cst?' · €'+cst.toFixed(2):'')):'–';
+  $('shElev').innerHTML=elevSvg(d);
+  $('sheet').classList.add('on');
+  $('shDel').onclick=async()=>{
+    if(!confirm('Delete this drive? It cannot be recovered.'))return;
+    drives=drives.filter(x=>x.id!==id);coverCache=null;await save(K_DRV,drives);
+    $('sheet').classList.remove('on');render();toast('Drive deleted.');
+  };
+  setTimeout(()=>{
+    if(typeof L==='undefined'){
+      $('map').innerHTML='<div class="empty" style="border:0">Map needs a connection. The stats below still work.</div>';return}
+    if(!map){
+      map=L.map('map');
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+    }
+    if(layer)map.removeLayer(layer);
+    const st=Math.max(1,Math.ceil(d.pts.length/600));
+    const sp=d.pts.filter((_,i)=>i%st===0||i===d.pts.length-1);
+    const segs=[];
+    for(let i=1;i<sp.length;i++){
+      segs.push(L.polyline([[sp[i-1][0],sp[i-1][1]],[sp[i][0],sp[i][1]]],
+        {color:speedColor(sp[i][3]||0),weight:4,opacity:.95}));
+    }
+    const line=d.pts.map(p=>[p[0],p[1]]);
+    segs.push(L.circleMarker(line[0],{radius:5,color:'#EFE9D9',fillOpacity:1}));
+    segs.push(L.circleMarker(line[line.length-1],{radius:5,color:'#D2402A',fillOpacity:1}));
+    layer=L.layerGroup(segs).addTo(map);
+    map.invalidateSize();map.fitBounds(L.latLngBounds(line).pad(.12));
+  },60);
+}
+function elevSvg(d){
+  const alt=(d.pts||[]).map(p=>p[4]).filter(v=>v!=null&&isFinite(v));
+  if(alt.length<8)return '';
+  const lo=Math.min(...alt),hi=Math.max(...alt);
+  if(hi-lo<6)return '<div class="cap">Elevation · flat, '+Math.round(hi-lo)+' m of variation</div>';
+  const W=320,H=60;
+  const pts=alt.map((v,i)=>[i/(alt.length-1)*W,H-(v-lo)/(hi-lo)*(H-8)-4]);
+  const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join('');
+  return '<div class="cap">Elevation · '+Math.round(lo)+'–'+Math.round(hi)+
+    ' m · '+(d.gain||0)+' m climbed</div>'+
+    '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+    '<path class="f" d="'+line+'L'+W+' '+H+'L0 '+H+'Z"/><path class="l" d="'+line+'"/></svg>';
+}
+$('shClose').onclick=()=>$('sheet').classList.remove('on');
+$('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
+$('btnAll').onclick=()=>{
+  if(!drives.length)return toast('No routes to map yet.');
+  $('sheetAll').classList.add('on');
+  const c=coverage();
+  $('allInfo').textContent=drives.length+' drives · '+(c.unique*CELL/1000).toFixed(0)+
+    ' km of distinct road · roads you repeat burn hotter';
+  setTimeout(()=>{
+    if(typeof L==='undefined'){
+      $('allmap').innerHTML='<div class="empty" style="border:0">Map needs a connection.</div>';return}
+    if(!allMap){
+      allMap=L.map('allmap');
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(allMap);
+    }
+    if(allLayer)allMap.removeLayer(allLayer);
+    const cells=coverage().cells, all=[], segs=[];
+    const heat=n=>n>=8?'#D2402A':n>=4?'#E8A33D':n>=2?'#8C8455':'#3F5B6B';
+    // keep the layer count sane: thin points, then merge runs of one colour
+    const total=drives.reduce((a,d)=>a+(d.pts?d.pts.length:0),0);
+    const step=Math.max(1,Math.ceil(total/6000));
+    drives.forEach(d=>{
+      if(!d.pts||d.pts.length<2)return;
+      const p=d.pts.filter((_,i)=>i%step===0||i===d.pts.length-1);
+      let run=[[p[0][0],p[0][1]]], col=heat(cells.get(cellKey(p[0][0],p[0][1]))||1);
+      all.push(run[0]);
+      for(let i=1;i<p.length;i++){
+        const c2=heat(cells.get(cellKey(p[i][0],p[i][1]))||1);
+        run.push([p[i][0],p[i][1]]);
+        if(c2!==col||i===p.length-1){
+          const hot=col==='#D2402A'||col==='#E8A33D';
+          segs.push(L.polyline(run,{color:col,weight:hot?4:3,opacity:hot?.9:.5}));
+          run=[[p[i][0],p[i][1]]];col=c2;
+        }
+      }
+    });
+    allLayer=L.layerGroup(segs).addTo(allMap);
+    allMap.invalidateSize();
+    if(all.length)allMap.fitBounds(L.latLngBounds(all).pad(.1));
+  },60);
+};
+
+/* ============ data in / out ============ */
+function dl(name,text,type){
+  const b=new Blob([text],{type}),u=URL.createObjectURL(b);
+  const a=document.createElement('a');a.href=u;a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),1000);
+}
+$('btnExport').onclick=()=>{
+  if(!drives.length)return toast('Nothing to export yet.');
+  dl('odo-backup-'+new Date().toISOString().slice(0,10)+'.json',
+     JSON.stringify({v:3,drives,cars,settings}),'application/json');
+  toast('Backup downloaded.');
+};
+$('btnGpx').onclick=()=>{
+  if(!drives.length)return toast('Nothing to export yet.');
+  const trks=drives.map(d=>'<trk><name>'+esc(d.name)+' '+new Date(d.start).toISOString()+
+    '</name><trkseg>'+d.pts.map(p=>'<trkpt lat="'+p[0]+'" lon="'+p[1]+'">'+
+      (p[4]!=null?'<ele>'+p[4]+'</ele>':'')+
+      '<time>'+new Date(d.start+p[2]*1000).toISOString()+'</time></trkpt>').join('')+
+    '</trkseg></trk>').join('');
+  dl('odo-'+new Date().toISOString().slice(0,10)+'.gpx',
+    '<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Odo" '+
+    'xmlns="http://www.topografix.com/GPX/1/1">'+trks+'</gpx>','application/gpx+xml');
+  toast('GPX downloaded.');
+};
+$('btnImport').onclick=()=>$('fileIn').click();
+$('fileIn').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=async()=>{
+    try{
+      const raw=JSON.parse(r.result);
+      const inc=Array.isArray(raw)?raw:raw.drives;
+      if(!Array.isArray(inc))throw 0;
+      const have=new Set(drives.map(d=>d.id));
+      const add=inc.filter(d=>d&&d.id&&d.pts&&!have.has(d.id));
+      drives=drives.concat(add);
+      if(raw.cars&&Array.isArray(raw.cars)){
+        const hc=new Set(cars.map(c=>c.id));
+        cars=cars.concat(raw.cars.filter(c=>c&&c.id&&!hc.has(c.id)));
+        await save(K_CAR,cars);
+      }
+      if(raw.settings){settings=Object.assign(settings,raw.settings);await save(K_SET,settings)}
+      coverCache=null;await save(K_DRV,drives);render();
+      toast(add.length+' drives restored.');
+    }catch(err){toast("That file isn't an Odo backup.")}
+    e.target.value='';
+  };
+  r.readAsText(f);
+};
+
+/* ============ tabs ============ */
+document.querySelectorAll('.tabs button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.tab));
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+});
+
+/* ============ boot ============ */
+(async()=>{
+  drives=await load(K_DRV,[]);
+  cars=await load(K_CAR,[]);
+  settings=Object.assign({activeCar:null,routeNames:{}},await load(K_SET,{}));
+  render();
+  diagnose();
+})();
+</script>
+</body>
+</html>
