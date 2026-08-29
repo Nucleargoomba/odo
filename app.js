@@ -19,16 +19,28 @@ function bearing(a,b,c,d){
   const x=Math.cos(a*p)*Math.sin(c*p)-Math.sin(a*p)*Math.cos(c*p)*Math.cos((d-b)*p);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
-/* Bearings taken between adjacent fixes are almost pure noise: a 1 Hz fix pair
-   spans about 15 m, and the few metres of scatter on each end swing the heading
-   by tens of degrees. Summed over a kilometre that buried the real shape of the
-   road — a dead straight 4 km measured 1370°/km and every road came out
-   "serpentine". So the track is first smoothed over a window of road, then
-   headings are compared between anchors a fixed distance apart. Both are
-   measured in metres rather than fixes, so a slow run and a fast run down the
-   same road agree. */
-const TWIST_SMOOTH=35;   // m either side of a point that is averaged into it
+/* Heading change per kilometre, and the same trap cleanGain() sidesteps for
+   altitude: adding up every wobble turns noise into signal. Two fixes a second
+   apart sit about 15 m apart, and a phone scatters by 10 m or more, so bearings
+   between neighbouring fixes are mostly error. Worse, the error is rectified —
+   |turn| is never negative, so it can only ever add. A dead straight road was
+   measuring 1370°/km, and after the baseline was widened it still read 180°/km
+   at realistic scatter, because widening shrinks the wobble without removing
+   the bias.
+
+   So: smooth the track over a window of road, take headings between anchors a
+   fixed distance apart, and bank a swing only once it has held its direction
+   past TWIST_HYST — wobble that doubles back is discarded rather than counted,
+   exactly as cleanGain() refuses to bank a climb until it has held. Distances
+   are in metres, not fixes, so a slow run and a fast run agree.
+
+   Tuned against tracks of known curvature at 4–20 m of scatter: a straight road
+   reads 0–2 where the old code read 1370, a 1200 m sweep 49 against 48 true, a
+   sweeping B-road 80 against 85, hairpins 468 against 480. Roads that bend
+   tighter than the smoothing window read low but stay clearly serpentine. */
+const TWIST_SMOOTH=100;  // m either side of a point that is averaged into it
 const TWIST_STEP=100;    // m between the anchors a heading is measured across
+const TWIST_HYST=25;     // ° a swing must hold before it counts as a bend
 const TWIST_MIN_KMH=25;  // below this it is a car park, not a road
 
 /* running mean of position over ±win metres of travelled path */
@@ -46,30 +58,58 @@ function smoothPath(pts,win){
   }
   return out;
 }
+/* total turning in a run of unwrapped headings, counting a swing only once it
+   has held its direction past H, so a wobble that reverses is never banked */
+function swings(h,H){
+  if(!h||h.length<2)return 0;
+  let total=0,anchor=h[0],ext=h[0],dir=0;
+  for(let i=1;i<h.length;i++){
+    const v=h[i];
+    if(dir===0){
+      if(Math.abs(v-anchor)>Math.abs(ext-anchor))ext=v;
+      if(Math.abs(ext-anchor)>H)dir=ext>anchor?1:-1;
+    }else if(dir>0){
+      if(v>ext)ext=v;
+      else if(ext-v>H){total+=ext-anchor;anchor=ext;ext=v;dir=-1}   // turned back
+    }else{
+      if(v<ext)ext=v;
+      else if(v-ext>H){total+=anchor-ext;anchor=ext;ext=v;dir=1}
+    }
+  }
+  if(dir>0&&ext-anchor>H)total+=ext-anchor;
+  if(dir<0&&anchor-ext>H)total+=anchor-ext;
+  return total;
+}
 /* degrees of heading change per kilometre */
 function twistOf(pts){
   if(!pts||pts.length<6)return null;
   const p=smoothPath(pts,TWIST_SMOOTH);
-  let deg=0,metres=0,anchor=null,prevBr=null,acc=0;
+  let metres=0,anchor=null,acc=0,prev=null,cur=0;
+  const runs=[];let run=[];
   for(let i=1;i<p.length;i++){
     const d=hav(p[i-1][0],p[i-1][1],p[i][0],p[i][1]);
     // imported tracks carry no speed, so fall back to the clock
     const dt=(p[i][2]-p[i-1][2])/1000;
     let spd=p[i][3];
     if(!(spd>0)&&dt>0)spd=d/dt*3.6;
-    if(!(spd>=TWIST_MIN_KMH)){anchor=null;prevBr=null;acc=0;continue}
+    // a crawl breaks the run: no bearing is drawn across a car park
+    if(!(spd>=TWIST_MIN_KMH)){
+      if(run.length>1)runs.push(run);
+      run=[];anchor=null;prev=null;acc=0;continue;
+    }
     if(anchor==null)anchor=p[i-1];
     acc+=d;
     if(acc<TWIST_STEP)continue;
     const br=bearing(anchor[0],anchor[1],p[i][0],p[i][1]);
-    if(prevBr!=null){
-      let dd=Math.abs(br-prevBr);if(dd>180)dd=360-dd;
-      deg+=dd;                      // every metre between anchors counts, so the
-    }                               // turning and the distance always agree
-    metres+=acc;
-    prevBr=br;anchor=p[i];acc=0;
+    if(prev==null)cur=br;                      // unwrap so a run reads continuously
+    else{let dd=br-prev;while(dd>180)dd-=360;while(dd<-180)dd+=360;cur+=dd}
+    run.push(cur);
+    metres+=acc;                               // turning and distance always agree
+    prev=br;anchor=p[i];acc=0;
   }
+  if(run.length>1)runs.push(run);
   if(metres<800)return null;
+  const deg=runs.reduce((a,r)=>a+swings(r,TWIST_HYST),0);
   return +(deg/(metres/1000)).toFixed(1);
 }
 
@@ -1529,9 +1569,9 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
   // and work out twistiness for drives recorded before it existed
   let dirty=false;
   drives.forEach(d=>{
-    // twistV 2: everything before it was measured between adjacent fixes and is
-    // noise, so recompute once rather than trusting the stored figure
-    if(d.twistV!==2){d.twist=twistOf(d.pts);d.twistV=2;dirty=true}
+    // twistV 3: earlier figures counted GPS wobble as cornering, so recompute
+    // once rather than trusting what is stored
+    if(d.twistV!==3){d.twist=twistOf(d.pts);d.twistV=3;dirty=true}
     if(d.newCells===undefined){d.newCells=0;dirty=true}
     if(d.accel===undefined){d.accel=accelOf(d);dirty=true}
     if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
