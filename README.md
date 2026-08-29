@@ -16,6 +16,12 @@ Put every file in this folder at the root of the repo served by GitHub Pages:
     icon-512.png
     icon-maskable-512.png
 
+`index.html` loads `app.css` and `app.js` with a `?v=N` query. Bump N on every
+deploy that changes either file. A cached worker matches on the full URL, so a
+new N is a guaranteed miss and the browser has to go to the network — without
+it, a worker that caches `index.html` keeps serving the old page, which asks for
+the old script, and no fix can reach the phone.
+
 Then open the site in Chrome and use "Add to Home screen". The service worker
 serves the app shell network first, so a deploy lands on the next load rather
 than the one after; the cache is there for offline use. If a new worker takes

@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-08-29 · twist v3';
+const BUILD='2026-08-29 · twist v3 · assets v4';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
