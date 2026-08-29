@@ -19,25 +19,60 @@ function bearing(a,b,c,d){
   const x=Math.cos(a*p)*Math.sin(c*p)-Math.sin(a*p)*Math.cos(c*p)*Math.cos((d-b)*p);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
-/* degrees of heading change per kilometre, ignoring anything slower than
-   25 km/h so roundabouts and car parks don't read as a mountain pass */
+/* Bearings taken between adjacent fixes are almost pure noise: a 1 Hz fix pair
+   spans about 15 m, and the few metres of scatter on each end swing the heading
+   by tens of degrees. Summed over a kilometre that buried the real shape of the
+   road — a dead straight 4 km measured 1370°/km and every road came out
+   "serpentine". So the track is first smoothed over a window of road, then
+   headings are compared between anchors a fixed distance apart. Both are
+   measured in metres rather than fixes, so a slow run and a fast run down the
+   same road agree. */
+const TWIST_SMOOTH=35;   // m either side of a point that is averaged into it
+const TWIST_STEP=100;    // m between the anchors a heading is measured across
+const TWIST_MIN_KMH=25;  // below this it is a car park, not a road
+
+/* running mean of position over ±win metres of travelled path */
+function smoothPath(pts,win){
+  const n=pts.length,cum=[0];
+  for(let i=1;i<n;i++)cum.push(cum[i-1]+hav(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]));
+  const out=[];
+  let lo=0,hi=0;
+  for(let i=0;i<n;i++){
+    while(cum[i]-cum[lo]>win)lo++;
+    while(hi<n-1&&cum[hi+1]-cum[i]<=win)hi++;
+    let la=0,ln=0,c=0;
+    for(let j=lo;j<=hi;j++){la+=pts[j][0];ln+=pts[j][1];c++}
+    out.push([la/c,ln/c,pts[i][2],pts[i][3],pts[i][4]]);
+  }
+  return out;
+}
+/* degrees of heading change per kilometre */
 function twistOf(pts){
   if(!pts||pts.length<6)return null;
-  let deg=0,metres=0,prev=null;
-  for(let i=1;i<pts.length;i++){
-    const a=pts[i-1],b=pts[i];
-    const d=hav(a[0],a[1],b[0],b[1]);
-    if(d<15)continue;
-    const br=bearing(a[0],a[1],b[0],b[1]);
-    if(prev!=null&&(b[3]||0)>25){
-      let dd=Math.abs(br-prev);if(dd>180)dd=360-dd;
-      if(dd<120){deg+=dd;metres+=d}
-    }
-    prev=br;
+  const p=smoothPath(pts,TWIST_SMOOTH);
+  let deg=0,metres=0,anchor=null,prevBr=null,acc=0;
+  for(let i=1;i<p.length;i++){
+    const d=hav(p[i-1][0],p[i-1][1],p[i][0],p[i][1]);
+    // imported tracks carry no speed, so fall back to the clock
+    const dt=(p[i][2]-p[i-1][2])/1000;
+    let spd=p[i][3];
+    if(!(spd>0)&&dt>0)spd=d/dt*3.6;
+    if(!(spd>=TWIST_MIN_KMH)){anchor=null;prevBr=null;acc=0;continue}
+    if(anchor==null)anchor=p[i-1];
+    acc+=d;
+    if(acc<TWIST_STEP)continue;
+    const br=bearing(anchor[0],anchor[1],p[i][0],p[i][1]);
+    if(prevBr!=null){
+      let dd=Math.abs(br-prevBr);if(dd>180)dd=360-dd;
+      deg+=dd;                      // every metre between anchors counts, so the
+    }                               // turning and the distance always agree
+    metres+=acc;
+    prevBr=br;anchor=p[i];acc=0;
   }
   if(metres<800)return null;
   return +(deg/(metres/1000)).toFixed(1);
 }
+
 function twistLabel(t){
   if(t==null)return '–';
   return t>=220?'serpentine':t>=140?'twisty':t>=80?'flowing':t>=40?'gentle':'straight';
@@ -1494,7 +1529,9 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
   // and work out twistiness for drives recorded before it existed
   let dirty=false;
   drives.forEach(d=>{
-    if(d.twist===undefined){d.twist=twistOf(d.pts);dirty=true}
+    // twistV 2: everything before it was measured between adjacent fixes and is
+    // noise, so recompute once rather than trusting the stored figure
+    if(d.twistV!==2){d.twist=twistOf(d.pts);d.twistV=2;dirty=true}
     if(d.newCells===undefined){d.newCells=0;dirty=true}
     if(d.accel===undefined){d.accel=accelOf(d);dirty=true}
     if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
