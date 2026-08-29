@@ -6,3 +6,7 @@ Thumbs.db
 *.msixbundle
 *.msi
 *.exe
+
+# update drops
+/files (*)/
+/files (*).zip
