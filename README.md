@@ -16,9 +16,11 @@ Put every file in this folder at the root of the repo served by GitHub Pages:
     icon-512.png
     icon-maskable-512.png
 
-Then open the site in Chrome and use "Add to Home screen". Because a service worker
-is registered, updates can take one extra reload to appear: open the app, pull to
-refresh, then reopen it.
+Then open the site in Chrome and use "Add to Home screen". The service worker
+serves the app shell network first, so a deploy lands on the next load rather
+than the one after; the cache is there for offline use. If a new worker takes
+over a page that was already running, the page reloads itself once so the whole
+app is on one version. The Garage tab shows which build is running.
 
 ## Data
 

@@ -1,3 +1,7 @@
+/* shown in the Garage, so which code a phone is actually running is checkable
+   rather than guessable */
+const BUILD='2026-08-29 · twist v3';
+
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
 async function load(key,fallback){
@@ -1580,7 +1584,16 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
 
   render();
   diagnose();
+  if($('build'))$('build').textContent='Build '+BUILD;
   if('serviceWorker' in navigator){
+    // if a worker was already driving this page and a new one takes over,
+    // reload once so the whole app is running the same code
+    const had=!!navigator.serviceWorker.controller;
+    let reloading=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(!had||reloading)return;
+      reloading=true;location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(()=>{});
   }
 })();

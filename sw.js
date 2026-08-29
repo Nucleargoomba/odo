@@ -1,5 +1,5 @@
 /* ODO service worker: app shell cached for offline, map tiles cached as you drive them */
-const SHELL='odo-shell-v1', TILES='odo-tiles-v1';
+const SHELL='odo-shell-v2', TILES='odo-tiles-v1';
 const FILES=['./','./index.html','./app.css','./app.js','./manifest.webmanifest',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];
@@ -32,14 +32,16 @@ self.addEventListener('fetch',e=>{
   // never cache API answers
   if(url.hostname.includes('open-meteo')||url.hostname.includes('nominatim'))return;
 
-  // app shell: cache first, refresh behind the scenes
-  e.respondWith(caches.match(e.request).then(hit=>{
-    const net=fetch(e.request).then(res=>{
-      if(res.ok&&url.origin===location.origin)caches.open(SHELL).then(c=>c.put(e.request,res.clone()));
-      return res;
-    }).catch(()=>hit);
-    return hit||net;
-  }));
+  // app shell: network first. Cache first meant every load ran the PREVIOUS
+  // deploy, so a fix looked half-applied — stored figures were up to date while
+  // anything recomputed on the fly still used the old code. The cache is the
+  // offline fallback now, not the default.
+  e.respondWith(fetch(e.request).then(res=>{
+    if(res.ok&&url.origin===location.origin)
+      caches.open(SHELL).then(c=>c.put(e.request,res.clone()));
+    return res;
+  }).catch(()=>caches.match(e.request).then(hit=>
+    hit||(e.request.mode==='navigate'?caches.match('./index.html'):Response.error()))));
 });
 async function trimTiles(c){
   const ks=await c.keys();
