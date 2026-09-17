@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · grades+combo+borders · assets v15';
+const BUILD='2026-09-17 · grade v2 · assets v16';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -576,31 +576,80 @@ function comboXp(cb){return cb?Math.round((cb.mult-1)*10)*6:0}
    These bands are a first cut and have never met your drives. gradeSpread()
    prints the distribution — if it piles everything on one letter the ladder
    is decoration, and the ramps below are what to move. */
-const GRADE_BANDS=[[90,'S'],[80,'A'],[68,'B'],[55,'C'],[40,'D'],[0,'E']];
+const GRADE_BANDS=[[86,'S'],[72,'A'],[56,'B'],[38,'C'],[22,'D'],[0,'E']];
 const ramp=(v,a,b)=>Math.max(0,Math.min(1,(v-a)/(b-a)));
+/* Where each component reads nothing and where it reads full marks. The
+   smoothness pair comes off the measured spread of 66 drives — 33 to 97,
+   median 61 — so an ordinary drive sits near the middle of the ramp instead
+   of at the bottom of it. The rest are still estimates; gradeSpread() prints
+   what they are doing to real drives and is the thing to argue with. */
+const GR_SM=[40,92];        // smoothness, 0-100
+const GR_TW=[15,130];       // degrees per km. The twisty challenge asks 140,
+                            // so 130 is close to the best road you drive.
+const GR_G=[.18,.55];       // peak g
+const GR_KM=[4,80];         // km
+const GR_NEW=14;            // most that breaking new ground can add
 function gradeOf(d){
   if(!d||d.dist<1500)return null;
   const parts=[];
   const sm=smoothOf(d);
-  if(sm!=null)parts.push({k:'Control',w:30,s:ramp(sm,35,95),d:sm+'/100'});
-  if(d.twist!=null)parts.push({k:'Road',w:25,s:ramp(d.twist,30,160),
+  if(sm!=null)parts.push({k:'Control',w:35,s:ramp(sm,GR_SM[0],GR_SM[1]),d:sm+'/100'});
+  if(d.twist!=null)parts.push({k:'Road',w:25,s:ramp(d.twist,GR_TW[0],GR_TW[1]),
     d:Math.round(d.twist)+'°/km'});
-  const newKm=(d.newCells||0)*CELL/1000;
-  parts.push({k:'Discovery',w:25,s:ramp(newKm,0,5),d:newKm.toFixed(1)+' km new'});
   const g=gOf(d);
-  if(g!=null)parts.push({k:'Commitment',w:20,s:ramp(g,.20,.60),d:g.toFixed(2)+' g'});
-  parts.push({k:'Journey',w:15,s:ramp(km(d.dist),5,100),
+  if(g!=null)parts.push({k:'Commitment',w:25,s:ramp(g,GR_G[0],GR_G[1]),
+    d:g.toFixed(2)+' g'});
+  parts.push({k:'Journey',w:15,s:ramp(km(d.dist),GR_KM[0],GR_KM[1]),
     d:Math.round(km(d.dist))+' km'});
   const wsum=parts.reduce((a,p)=>a+p.w,0);
   if(!wsum)return null;
-  const score=Math.round(parts.reduce((a,p)=>a+p.s*p.w,0)/wsum*100);
-  return {score,letter:GRADE_BANDS.find(b=>score>=b[0])[1],parts};
+  const base=parts.reduce((a,p)=>a+p.s*p.w,0)/wsum*100;
+  /* Discovery adds and never subtracts. As a weighted component it was a
+     quarter of the grade that almost every drive forfeited, because almost
+     every drive is down a road you have already been: a physically perfect
+     run on known roads could not beat 78. Finding new road is a bonus on top
+     of how you drove, not a tax on driving the same road well. */
+  const newKm=(d.newCells||0)*CELL/1000;
+  const bonus=ramp(newKm,0,5)*GR_NEW;
+  const score=Math.round(Math.min(100,base+bonus));
+  return {score,letter:GRADE_BANDS.find(b=>score>=b[0])[1],parts,
+          bonus:Math.round(bonus),newKm};
 }
-/* an honest look at whether the bands discriminate at all */
+/* What the ladder is actually doing, and the raw spread behind it, so the
+   anchors above can be moved against real numbers rather than guessed at
+   twice. Prints the 10th, 50th and 90th percentile of every input. */
 function gradeSpread(){
-  const t={};
-  drives.forEach(d=>{const g=gradeOf(d);if(g)t[g.letter]=(t[g.letter]||0)+1});
-  return t;
+  const letters={}, comp={};
+  const add=(k,v)=>{(comp[k]=comp[k]||[]).push(v)};
+  let n=0;
+  drives.forEach(d=>{
+    const g=gradeOf(d);
+    if(!g)return;
+    n++;
+    letters[g.letter]=(letters[g.letter]||0)+1;
+    g.parts.forEach(p=>add(p.k,p.s));
+    add('score',g.score);
+    if(smoothOf(d)!=null)add('raw smoothness',smoothOf(d));
+    if(d.twist!=null)add('raw twist',d.twist);
+    if(gOf(d)!=null)add('raw peak g',gOf(d));
+    add('raw km',km(d.dist));
+    add('raw new km',(d.newCells||0)*CELL/1000);
+  });
+  if(!n){console.log('No drives long enough to grade yet.');return null}
+  const pct=(a,q)=>{const s=a.slice().sort((x,y)=>x-y);
+    return s[Math.min(s.length-1,Math.floor(s.length*q))]};
+  const out={drives:n,letters:letters,pct:{}};
+  let txt='\n'+n+' drives graded\n'+
+    GRADE_BANDS.map(b=>b[1]).map(L=>'  '+L+'  '+(letters[L]||0)).join('\n')+
+    '\n\n                     p10      p50      p90\n';
+  Object.keys(comp).forEach(k=>{
+    const v=[pct(comp[k],.1),pct(comp[k],.5),pct(comp[k],.9)]
+      .map(x=>+x.toFixed(3));
+    out.pct[k]=v;
+    txt+='  '+k.padEnd(18)+v.map(x=>String(x).padStart(8)).join('')+'\n';
+  });
+  console.log(txt);
+  return out;
 }
 
 /* ============ route medals ============
@@ -681,7 +730,8 @@ function gradeHtml(d){
   let h='';
   if(g)h+='<div class="gr-top">'+
     '<div class="gr-letter gr-'+g.letter+'">'+g.letter+'</div>'+
-    '<div class="gr-meta"><div class="gr-score">'+g.score+'<s>/100</s></div>'+
+    '<div class="gr-meta"><div class="gr-score">'+g.score+'<s>/100</s>'+
+    (g.bonus?'<b class="gr-bonus">+'+g.bonus+' new road</b>':'')+'</div>'+
     '<div class="gr-bars">'+g.parts.map(p=>
       '<div class="gr-bar"><i style="width:'+Math.round(p.s*100)+'%"></i>'+
       '<span>'+p.k+'<s>'+esc(p.d)+'</s></span></div>').join('')+

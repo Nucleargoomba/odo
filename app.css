@@ -601,6 +601,9 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 .gr-meta{flex:1;min-width:0}
 .gr-score{font-family:'IBM Plex Mono',monospace;font-size:15px;margin-bottom:6px}
 .gr-score s{text-decoration:none;color:var(--slate);font-size:11px}
+.gr-bonus{float:right;font-family:'IBM Plex Mono',monospace;font-size:10px;
+  font-weight:400;color:var(--amber);border:1px solid rgba(232,163,61,.4);
+  border-radius:3px;padding:1px 5px;letter-spacing:.04em}
 .gr-bars{display:flex;flex-direction:column;gap:3px}
 .gr-bar{position:relative;height:14px;background:#0A0906;border-radius:3px;overflow:hidden}
 .gr-bar i{position:absolute;top:0;bottom:0;left:0;background:var(--line-2);border-radius:3px}

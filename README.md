@@ -153,9 +153,9 @@ any tank that beat your own measured consumption.
 
 ## Drive grade
 
-Every drive over 1.5 km gets a letter, S down to E, from five components:
-Control (smoothness), Road (twistiness), Discovery (new road), Commitment
-(peak g) and Journey (distance). Control and Commitment pull against each
+Every drive over 1.5 km gets a letter, S down to E, weighted over four
+components: Control (smoothness, 35), Road (twistiness, 25), Commitment (peak
+g, 25) and Journey (distance, 15). Control and Commitment pull against each
 other on purpose — either one alone is easy, and holding a high line smoothly
 is the thing worth grading.
 
@@ -163,10 +163,20 @@ A component with no data drops out and the rest are re-weighted, so a phone
 with no motion sensor is graded on what it does know rather than marked down
 for what it does not.
 
-The bands are a first cut and have not yet met real drives. `gradeSpread()` in
-the console prints how many drives landed on each letter. If it piles
-everything onto one, the ladder is decoration and the ramps in `gradeOf()` are
-what to move — the same lesson as the smoothness threshold.
+New road is a bonus of up to 14 points on top, never part of the weighting. It
+was a weighted component to begin with, and that was wrong: almost every drive
+is down a road you have already been, so almost every drive forfeited a
+quarter of its grade before it started, and a physically perfect run on known
+roads could not beat 78. Finding new road is a bonus for how you drove, not a
+tax on driving the same road well.
+
+The anchors — where each component reads nothing and where it reads full marks
+— are the part still worth arguing with. Smoothness is set from the measured
+spread of 66 drives (33 to 97, median 61) so an ordinary drive sits in the
+middle of the ramp; the other three are estimates. `gradeSpread()` prints the
+letter counts and the 10th, 50th and 90th percentile of every input, raw and
+scored, so the anchors can be moved against real numbers rather than guessed
+at again.
 
 ## Clean run
 
