@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v9';
+const BUILD='2026-09-17 · twist v3 · assets v10';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -290,7 +290,8 @@ function buildRoutes(){
       name:settings.routeNames[r.key]||(nameOf(r.from)+' → '+nameOf(r.to)),
       runs:runs.sort((a,b)=>b.start-a.start),
       dist:md, best:Math.min(...durs), worst:Math.max(...durs),
-      med:median(durs), last:runs[0].dur, lastStart:runs[0].start
+      med:median(durs), last:runs[0].dur, lastStart:runs[0].start,
+      from:r.from, to:r.to          // nameePlaces() and leaveCard() need the endpoints
     });
   });
   return out.sort((a,b)=>b.runs.length-a.runs.length);
@@ -1544,6 +1545,62 @@ function drawCompare(){
   },60);
 }
 
+/* ---------- leave by ----------
+   bestWindow() already works out which quarter hour has been quickest on a
+   route, but it only ever appeared on the route card, after the fact. This
+   puts it in front of you while you are still deciding whether to go. */
+function medianNear(runs,mins,within){
+  const near=runs.filter(d=>{
+    const t=new Date(d.start), m=t.getHours()*60+t.getMinutes();
+    let diff=Math.abs(m-mins);
+    if(diff>720)diff=1440-diff;
+    return diff<=within;
+  });
+  return near.length>=2?{med:median(near.map(d=>d.dur)),n:near.length}:null;
+}
+function leaveCard(pos){
+  const here=buildRoutes().filter(r=>
+    r.from&&hav(r.from.lat,r.from.lng,pos.lat,pos.lng)<PLACE_R);
+  if(!here.length)return '';
+  const now=new Date(), nowM=now.getHours()*60+now.getMinutes();
+  const out=[];
+  here.slice(0,2).forEach(r=>{
+    const w=bestWindow(r.runs);
+    if(!w)return;
+    const parts=w.label.split(':');
+    const winM=(+parts[0])*60+(+parts[1]);
+    let delta=winM-nowM;
+    if(delta<-720)delta+=1440; else if(delta>720)delta-=1440;
+    const soon=medianNear(r.runs,nowM,45);
+    let line;
+    if(Math.abs(delta)<=8){
+      line='<b>'+esc(r.name)+'</b> is quickest right about now \u2014 '+
+        mins(w.med)+' across '+w.n+' runs.';
+    }else if(delta>0&&delta<=180){
+      const gain=soon?soon.med-w.med:0;
+      line='<b>'+esc(r.name)+'</b> has been quickest leaving around '+w.label+
+        ', in '+delta+' min'+
+        (gain>60?' \u2014 '+mins(w.med)+' then against '+mins(soon.med)+' now':
+                 ' ('+mins(w.med)+', '+w.n+' runs)')+'.';
+    }else{
+      line='<b>'+esc(r.name)+'</b> has been quickest leaving around '+w.label+
+        ' ('+mins(w.med)+', '+w.n+' runs).'+
+        (soon?' From here at this hour you have averaged '+mins(soon.med)+'.':'');
+    }
+    out.push(line);
+  });
+  if(!out.length)return '';
+  return '<div class="nudge">'+out.join('<br>')+'</div>';
+}
+function showLeave(){
+  const el=$('leave');
+  if(!el||!navigator.geolocation||rec)return;
+  navigator.geolocation.getCurrentPosition(
+    p=>{try{el.innerHTML=leaveCard({lat:p.coords.latitude,lng:p.coords.longitude})}catch(e){}},
+    ()=>{},
+    {enableHighAccuracy:false,maximumAge:600000,timeout:8000});
+}
+
 /* ---------- place names via Nominatim (one call per place, on request) ---------- */
 async function nameePlaces(){
   const rs=buildRoutes();
@@ -1716,6 +1773,7 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
 
   render();
   diagnose();
+  showLeave();
   if($('build'))$('build').textContent='Build '+BUILD;
   if('serviceWorker' in navigator){
     // if a worker was already driving this page and a new one takes over,
