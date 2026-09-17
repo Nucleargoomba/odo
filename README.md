@@ -151,6 +151,8 @@ Standing pots: day streak, completed weekly challenges, three or more distinct
 routes in a week, each logged service (more if done before it fell due), and
 any tank that beat your own measured consumption.
 
+Multiplying the per-drive total: the age of the car that drove it.
+
 ## Drive grade
 
 Every drive over 1.5 km gets a letter, S down to E, weighted over four
@@ -230,3 +232,23 @@ of them.
 
 The first drive into an empty sector earns nothing — there was no border there
 to push.
+
+## An old car earns more
+
+A car can carry the year it was built, and earns one percent more xp per year
+of its age. A 1991 car drove for 35% more in 2026; a 2024 one for 2%.
+
+The age is taken at the date of the drive, not today, so a drive keeps the xp
+it earned rather than quietly gaining a percent every New Year — the same
+reason `markPbs()` replays the history instead of measuring against today's
+best. Set the year on a car that has already been driven and its whole history
+is recounted at once.
+
+The boost multiplies what the drive itself earned and appears as its own row
+at the bottom of the breakdown. Streaks, weekly challenges and services are
+not the car's doing and are left alone, which keeps the Stats xp breakdown
+honest: one named row rather than a thumb on every other scale. Because it is
+worked out per drive from the car that drove it, two cars earn at their own
+rates from the same wheel.
+
+A car with no year set earns exactly what it earned before.

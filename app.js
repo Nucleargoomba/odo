@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · grade v3 calibrated · assets v17';
+const BUILD='2026-09-17 · car age xp · assets v18';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -669,6 +669,33 @@ function gradeSpread(){
   return out;
 }
 
+/* ============ car age ============
+   An old car earns more: one percent per year of its age. The age is taken
+   at the time of the drive rather than today, so a drive keeps the xp it
+   earned instead of quietly gaining a percent every New Year — the same
+   reason markPbs() replays the history rather than measuring against today's
+   best.
+
+   The boost multiplies what the drive itself earned. A streak, a weekly
+   challenge and a service are not the car's doing and are left alone, which
+   also keeps the Stats xp breakdown honest: the boost is one named row and
+   not a thumb on every other scale.
+
+   Two cars therefore earn at their own rates from the same wheel, which is
+   the point — a 1991 car at +35% and a 2024 one at +2%. */
+const AGE_PCT=0.01;
+function carAgeAt(c,ts){
+  if(!c||!c.year)return 0;
+  const age=new Date(ts).getFullYear()-c.year;
+  return age>0?age:0;
+}
+function ageBoost(d){
+  const c=carOf(d);
+  const age=carAgeAt(c,d.start);
+  if(!age)return null;
+  return {age,year:c.year,name:c.name,mult:1+age*AGE_PCT};
+}
+
 /* ============ route medals ============
    Distance piled onto one route, which is a different achievement from
    driving it quickly: it is the road you actually know. */
@@ -1012,6 +1039,8 @@ function renderCars(){
       '<div class="c-meta">'+mine.toFixed(0)+' km logged here'+
       (measuredL100(c)?' · '+measuredL100(c).toFixed(1)+' L/100 km measured'
         :(c.l100?' · '+c.l100+' L/100 km estimated':''))+(c.price?' · €'+c.price+'/L':'')+
+      (c.year?' · '+c.year+' · +'+
+        Math.round(carAgeAt(c,Date.now())*AGE_PCT*100)+'% xp':'')+
       (settings.activeCar===c.id?' · active':'')+'</div>'+
       '<div class="svc">'+(svc||'<div class="c-meta">No service intervals set.</div>')+'</div>'+
       renderFuel(c)+
@@ -1050,6 +1079,13 @@ async function editCar(id){
   if(name===null||!name.trim())return;
   const odo=prompt('Current odometer reading in km (the real one on the dash)',c?c.odoStart:'0');
   if(odo===null)return;
+  const year=prompt('Year the car was built — an older car earns '+
+    Math.round(AGE_PCT*100)+'% more xp per year of age (blank to skip)',
+    c&&c.year?c.year:'');
+  if(year===null)return;
+  const yr=Math.round(Number(year));
+  const yrOk=year!==''&&isFinite(yr)&&yr>=1900&&yr<=new Date().getFullYear()+1;
+  if(year!==''&&!yrOk)toast('That year looks wrong, so no age bonus was set.');
   const l100=prompt('Average fuel use, litres per 100 km (blank to skip)',c&&c.l100?c.l100:'');
   const price=prompt('Fuel price per litre in € (blank to skip)',c&&c.price?c.price:'');
   const rec={
@@ -1057,6 +1093,7 @@ async function editCar(id){
     odoStart:Number(odo)||0,
     l100:l100?Number(l100)||null:null,
     price:price?Number(price)||null:null,
+    year:yrOk?yr:null,
     services:c?c.services||[]:[]
   };
   if(c)Object.assign(c,rec); else cars.push(rec);
@@ -4017,6 +4054,13 @@ function xpBreakdown(d){
   if(bp)out.push({k:'Pushed the border',v:Math.min(60,20+Math.round(bp.by/1000)*4),
     d:dirWord(bp.dir)+' by '+(bp.by/1000).toFixed(1)+' km'});
   if(d.pb)out.push({k:'Route best',v:40,d:'quickest run on this route at the time'});
+  /* last, so it lifts everything above it and nothing lifts it */
+  const ab=ageBoost(d);
+  if(ab){
+    const add=Math.round(out.reduce((a,x)=>a+x.v,0)*(ab.mult-1));
+    if(add>0)out.push({k:'Old car',v:add,
+      d:ab.year+' · '+ab.age+' years · +'+Math.round((ab.mult-1)*100)+'%'});
+  }
   return out;
 }
 function renderXpBreak(id){
