@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v6';
+const BUILD='2026-09-17 · twist v3 · assets v7';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -203,6 +203,7 @@ function buildRoutes(){
   const rank=places.slice().sort((x,y)=>y.n-x.n);
   const letter=p=>{const i=rank.indexOf(p);
     return i<26?String.fromCharCode(65+i):'#'+i};
+  const nameOf=p=>placeLabel(p)||letter(p);
   const out=[];
   map.forEach(r=>{
     if(r.runs.length<2)return;
@@ -212,7 +213,7 @@ function buildRoutes(){
     const durs=runs.map(d=>d.dur);
     out.push({
       key:r.key,
-      name:settings.routeNames[r.key]||(letter(r.from)+' → '+letter(r.to)),
+      name:settings.routeNames[r.key]||(nameOf(r.from)+' → '+nameOf(r.to)),
       runs:runs.sort((a,b)=>b.start-a.start),
       dist:md, best:Math.min(...durs), worst:Math.max(...durs),
       med:median(durs), last:runs[0].dur, lastStart:runs[0].start
@@ -1433,26 +1434,32 @@ async function nameePlaces(){
   rs.forEach(r=>{r.runs.forEach(()=>{});
     seen.set(r.from.lat.toFixed(3)+','+r.from.lng.toFixed(3),r.from);
     seen.set(r.to.lat.toFixed(3)+','+r.to.lng.toFixed(3),r.to)});
-  const todo=[...seen.entries()].filter(([k])=>!settings.placeNames[k]);
+  const todo=[...seen.entries()].filter(([k])=>
+    !settings.placeNames[k]||settings.placeNames[k]==='Unknown');
   if(!todo.length)return toast('All places already named.');
   toast('Looking up '+todo.length+' places…');
+  let ok=0,bad=0;
   for(const [k,p] of todo){
     try{
       const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat='+
         p.lat+'&lon='+p.lng+'&zoom=16&addressdetails=1');
       const j=await r.json();
       const a=j.address||{};
-      settings.placeNames[k]=a.suburb||a.neighbourhood||a.village||a.town||a.city_district||
-        a.city||a.municipality||j.name||'Unknown';
-    }catch(e){}
+      const nm=a.suburb||a.neighbourhood||a.village||a.town||a.city_district||
+        a.city||a.municipality||j.name;
+      if(nm){settings.placeNames[k]=nm;ok++}else bad++;
+    }catch(e){bad++}
     await new Promise(r=>setTimeout(r,1200));   // Nominatim asks for max 1 req/sec
   }
-  await saveV2(K_SET,settings);render();toast('Places named.');
+  await saveV2(K_SET,settings);render();
+  toast(ok?'Named '+ok+' place'+(ok>1?'s':'')+(bad?', '+bad+' not found':'')+'.'
+          :'Could not reach the name service — try again in a minute.');
 }
 /* use the looked-up names when building route labels */
 function placeLabel(p){
   const k=p.lat.toFixed(3)+','+p.lng.toFixed(3);
-  return (settings.placeNames&&settings.placeNames[k])||null;
+  const v=settings.placeNames&&settings.placeNames[k];
+  return (v&&v!=='Unknown')?v:null;
 }
 
 /* ---------- CSV out, GPX in ---------- */
