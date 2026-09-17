@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v11';
+const BUILD='2026-09-17 · twist v3 · assets v12';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -145,9 +145,9 @@ const GG_JOLT=.35, GG_CALM=.22;   // 3.5 and 2.2 m/s^2, the thresholds onMotion 
    read 11-59% high. Averaged over five samples, about five seconds, the same
    test lands within 1.4-7.6%, and a long brake is untouched because the
    longitudinal figure never had the problem. */
-const GG_WIN=5;
-function ggSmooth(s){
-  const h=GG_WIN>>1, out=[];
+const GG_WIN=5, GG_JWIN=3;
+function ggSmooth(s,w){
+  const h=(w||GG_WIN)>>1, out=[];
   for(let i=0;i<s.length;i++){
     let a=0,b=0,c=0;
     for(let j=Math.max(0,i-h),e=Math.min(s.length,i+h+1);j<e;j++){a+=s[j][0];b+=s[j][1];c++}
@@ -180,16 +180,26 @@ function ggPoints(d){
 /* peak combined g, and a jolt count on the footing the sensor uses: one event
    however long it lasts, so a long hard brake is not a hundred separate jolts */
 function ggOf(d){
-  const s=ggSmooth(ggPoints(d));
-  if(s.length<12)return null;
-  let peak=0, hard=0, inJolt=false;
-  for(const q of s){
+  const raw=ggPoints(d);
+  if(raw.length<12)return null;
+  let peak=0;
+  for(const q of ggSmooth(raw,GG_WIN)){
     const m=Math.hypot(q[0],q[1]);
     if(m>peak)peak=m;
+  }
+  /* Jolts need a narrower window than the peak does. Five samples is about
+     five seconds, which flattens a three-second 0.4 g brake to 0.24 g, under
+     the threshold, so nothing was ever counted and every drive scored a
+     perfect 100. Three samples keeps that brake at its full 0.4 g while still
+     cutting the per-sample scatter from 0.15 g to 0.087 g, which leaves the
+     0.35 g threshold four standard deviations clear of the noise. */
+  let hard=0, inJolt=false;
+  for(const q of ggSmooth(raw,GG_JWIN)){
+    const m=Math.hypot(q[0],q[1]);
     if(m>=GG_JOLT){if(!inJolt){hard++;inJolt=true}}
     else if(m<GG_CALM)inJolt=false;
   }
-  return {g:+peak.toFixed(2),hard,n:s.length};
+  return {g:+peak.toFixed(2),hard,n:raw.length};
 }
 /* a real sensor reading wins where there is one; gps fills in where there is not */
 function gOf(d){return d.g!=null?d.g:(d.gGps!=null?d.gGps:null)}
@@ -1244,7 +1254,7 @@ const CHALLENGES=[
   {id:'new',    name:'Find 8 km of road you have never driven', xp:200, goal:8,unit:'km',
    f:w=>newRoadKm(w)},
   {id:'smooth', name:'Three drives scoring 85+ for smoothness', xp:150, goal:3,unit:'drives',
-   f:w=>w.filter(d=>smoothOf(d)!=null&&smoothOf(d)>=85).length},
+   f:w=>w.filter(d=>d.smooth!=null&&d.smooth>=85).length},
   {id:'twist',  name:'Drive something twisty (140°/km or more)', xp:180, goal:1,unit:'drives',
    f:w=>w.filter(d=>d.twist!=null&&d.twist>=140).length},
   {id:'days',   name:'Drive on five separate days', xp:130, goal:5,unit:'days',
@@ -1380,7 +1390,7 @@ async function shareDrive(id){
 
 /* ---------- the friction circle ---------- */
 function ggSvg(d){
-  const s=ggSmooth(ggPoints(d));
+  const s=ggSmooth(ggPoints(d),GG_WIN);
   if(s.length<12)return '';
   let mx=0;for(const q of s){const m=Math.hypot(q[0],q[1]);if(m>mx)mx=m}
   const lim=Math.max(.4,Math.ceil(mx*5)/5);
@@ -1392,7 +1402,10 @@ function ggSvg(d){
     lim.toFixed(1)+' g</text>';
   const dots=s.map(q=>'<circle cx="'+(C+q[0]/lim*R).toFixed(1)+'" cy="'+
     (C-q[1]/lim*R).toFixed(1)+'" r="1.8" fill="'+speedColor(q[2]||0)+'"/>').join('');
-  return '<div class="cap">How hard you drove \u00b7 '+s.length+' samples from gps</div>'+
+  const o=ggOf(d);
+  return '<div class="cap">How hard you drove \u00b7 '+s.length+' samples from gps'+
+    (o?' \u00b7 peak '+o.g.toFixed(2)+' g \u00b7 '+o.hard+' firm move'+(o.hard===1?'':'s'):'')+
+    '</div>'+
     '<svg class="gg-svg" viewBox="0 0 '+S+' '+S+'">'+
     '<line class="gg-ax" x1="'+C+'" y1="8" x2="'+C+'" y2="'+(S-8)+'"/>'+
     '<line class="gg-ax" x1="8" y1="'+C+'" x2="'+(S-8)+'" y2="'+C+'"/>'+
@@ -1764,10 +1777,10 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
     if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
     // cornering and braking worked out from gps, for phones that report no
     // motion sensor. Kept beside d.g and d.smooth, never written over them.
-    if(d.ggV!==1){const gg=ggOf(d);
+    if(d.ggV!==2){const gg=ggOf(d);
       d.gGps=gg?gg.g:null;
       d.smoothGps=gg?smoothness(gg.hard,d.dur):null;
-      d.ggV=1;dirty=true}
+      d.ggV=2;dirty=true}
   });
   if(idbOk||dirty){await saveV2(K_DRV,drives);await saveV2(K_CAR,cars);await saveV2(K_SET,settings)}
 
@@ -3594,8 +3607,9 @@ function xpBreakdown(d){
   if(d.dist>=25000)out.push({k:'Long run',v:20,d:'over 25 km'});
   const h=new Date(d.start).getHours();
   if(h>=21||h<6)out.push({k:'After dark',v:10,d:null});
-  if(smoothOf(d)!=null&&smoothOf(d)>=90)
-    out.push({k:'Smooth',v:15,d:smoothOf(d)+'/100'+(d.smooth==null?' from gps':'')});
+  // sensor only: a gps-derived score has nothing to calibrate against,
+  // so it is shown but never paid for
+  if(d.smooth!=null&&d.smooth>=90)out.push({k:'Smooth',v:15,d:d.smooth+'/100'});
   // ramps in from 80°/km instead of appearing all at once at 140
   if(d.twist!=null&&d.twist>=80)
     out.push({k:'Twisty road',v:Math.round((d.twist-80)/2.5),d:Math.round(d.twist)+'°/km'});
