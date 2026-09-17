@@ -10,3 +10,7 @@ Thumbs.db
 # update drops
 /files (*)/
 /files (*).zip
+
+# personal data: a backup holds every gps point ever recorded
+odo-backup-*.json
+*.gpx

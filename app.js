@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v12';
+const BUILD='2026-09-17 · twist v3 · assets v13';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -136,7 +136,17 @@ function twistLabel(t){
    dropout leaves two distant fixes many seconds apart, and is skipped rather
    than read as one enormous slow corner. */
 const GG_MINSPD=20/3.6, GG_MINLEG=10, GG_MAXDT=4, GG_CAP=1.4;
-const GG_JOLT=.35, GG_CALM=.22;   // 3.5 and 2.2 m/s^2, the thresholds onMotion uses
+/* Smoothness comes from the spread of the acceleration itself, not from
+   counting threshold crossings. Measured over 66 real drives, the 95th
+   percentile of |a| within a drive runs from 0.081 g to 0.226 g, and the
+   99th never passed 0.444 g. The old 0.35 g threshold, inherited from the
+   motion sensor, therefore sat above the 99th percentile of every single
+   drive: nothing ever tripped it and every drive scored 100.
+   These two anchors are physical rather than fitted to one driver. A 95th
+   percentile of 0.075 g is genuinely serene; 0.30 g is firm input most of
+   the time. Across those 66 drives they spread the scores 33 to 97 with a
+   median of 61, which is the discrimination the old count never had. */
+const GG_SERENE=.075, GG_BUSY=.30;
 /* Coordinates are stored to five decimals, about 1.1 m, and a bearing taken
    over a 13 m leg inherits roughly 5 degrees of that rounding. It works out at
    about 0.15 g of scatter on every single sample, whatever the speed. The
@@ -187,19 +197,14 @@ function ggOf(d){
     const m=Math.hypot(q[0],q[1]);
     if(m>peak)peak=m;
   }
-  /* Jolts need a narrower window than the peak does. Five samples is about
-     five seconds, which flattens a three-second 0.4 g brake to 0.24 g, under
-     the threshold, so nothing was ever counted and every drive scored a
-     perfect 100. Three samples keeps that brake at its full 0.4 g while still
-     cutting the per-sample scatter from 0.15 g to 0.087 g, which leaves the
-     0.35 g threshold four standard deviations clear of the noise. */
-  let hard=0, inJolt=false;
-  for(const q of ggSmooth(raw,GG_JWIN)){
-    const m=Math.hypot(q[0],q[1]);
-    if(m>=GG_JOLT){if(!inJolt){hard++;inJolt=true}}
-    else if(m<GG_CALM)inJolt=false;
-  }
-  return {g:+peak.toFixed(2),hard,n:raw.length};
+  /* The score reads a narrower window than the peak does. Five samples is
+     about five seconds, enough to flatten a three-second brake; three keeps
+     it while still cutting per-sample scatter from 0.15 g to 0.087 g. */
+  const mags=ggSmooth(raw,GG_JWIN).map(q=>Math.hypot(q[0],q[1])).sort((a,b)=>a-b);
+  const p95=mags[Math.min(mags.length-1,Math.floor(mags.length*.95))];
+  const smooth=Math.max(0,Math.min(100,Math.round(
+    100-(p95-GG_SERENE)/(GG_BUSY-GG_SERENE)*100)));
+  return {g:+peak.toFixed(2),smooth,p95:+p95.toFixed(3),n:raw.length};
 }
 /* a real sensor reading wins where there is one; gps fills in where there is not */
 function gOf(d){return d.g!=null?d.g:(d.gGps!=null?d.gGps:null)}
@@ -1404,7 +1409,7 @@ function ggSvg(d){
     (C-q[1]/lim*R).toFixed(1)+'" r="1.8" fill="'+speedColor(q[2]||0)+'"/>').join('');
   const o=ggOf(d);
   return '<div class="cap">How hard you drove \u00b7 '+s.length+' samples from gps'+
-    (o?' \u00b7 peak '+o.g.toFixed(2)+' g \u00b7 '+o.hard+' firm move'+(o.hard===1?'':'s'):'')+
+    (o?' \u00b7 peak '+o.g.toFixed(2)+' g \u00b7 smoothness '+o.smooth:'')+
     '</div>'+
     '<svg class="gg-svg" viewBox="0 0 '+S+' '+S+'">'+
     '<line class="gg-ax" x1="'+C+'" y1="8" x2="'+C+'" y2="'+(S-8)+'"/>'+
@@ -1777,10 +1782,10 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
     if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
     // cornering and braking worked out from gps, for phones that report no
     // motion sensor. Kept beside d.g and d.smooth, never written over them.
-    if(d.ggV!==2){const gg=ggOf(d);
+    if(d.ggV!==3){const gg=ggOf(d);
       d.gGps=gg?gg.g:null;
-      d.smoothGps=gg?smoothness(gg.hard,d.dur):null;
-      d.ggV=2;dirty=true}
+      d.smoothGps=gg?gg.smooth:null;
+      d.ggV=3;dirty=true}
   });
   if(idbOk||dirty){await saveV2(K_DRV,drives);await saveV2(K_CAR,cars);await saveV2(K_SET,settings)}
 
