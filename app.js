@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-08-29 · twist v3 · assets v4';
+const BUILD='2026-09-17 · twist v3 · assets v6';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -851,7 +851,7 @@ function openDrive(id){
   $('shIdle').textContent=d.idle?Math.round(d.idle/60)+'′':'0′';
   $('shG').textContent=d.g!=null?d.g.toFixed(2):'–';
   const l=fuelOf(d),cst=costOf(d);
-  $('shFuel').textContent=l!=null?(l.toFixed(1)+' L'+(cst?' · €'+cst.toFixed(2):'')):'–';
+  $('shFuel').innerHTML=l!=null?(l.toFixed(1)+' L'+(cst?'<s>€'+cst.toFixed(2)+'</s>':'')):'–';
   $('shElev').innerHTML=elevSvg(d);
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
