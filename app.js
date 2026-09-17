@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · grade v2 · assets v16';
+const BUILD='2026-09-17 · grade v3 calibrated · assets v17';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -578,16 +578,33 @@ function comboXp(cb){return cb?Math.round((cb.mult-1)*10)*6:0}
    is decoration, and the ramps below are what to move. */
 const GRADE_BANDS=[[86,'S'],[72,'A'],[56,'B'],[38,'C'],[22,'D'],[0,'E']];
 const ramp=(v,a,b)=>Math.max(0,Math.min(1,(v-a)/(b-a)));
-/* Where each component reads nothing and where it reads full marks. The
-   smoothness pair comes off the measured spread of 66 drives — 33 to 97,
-   median 61 — so an ordinary drive sits near the middle of the ramp instead
-   of at the bottom of it. The rest are still estimates; gradeSpread() prints
-   what they are doing to real drives and is the thing to argue with. */
-const GR_SM=[40,92];        // smoothness, 0-100
-const GR_TW=[15,130];       // degrees per km. The twisty challenge asks 140,
-                            // so 130 is close to the best road you drive.
-const GR_G=[.18,.55];       // peak g
-const GR_KM=[4,80];         // km
+/* Where each component reads nothing and where it reads full marks, set
+   against the 66 recorded drives rather than guessed at. Each pair sits at
+   roughly the 5th and 95th percentile of what those drives actually produced,
+   so an ordinary drive lands in the middle of every ramp and a good one near
+   the top of it:
+
+     smoothness   36 .. 86      twist    10 .. 57 deg/km
+     peak g      .19 .. .47     distance  5 .. 70 km
+
+   Distance tops out at 55 rather than 70 because the drives are two
+   clumps, a ten kilometre commute and a fifty kilometre run, and a ramp
+   that reached the far end of the long ones left more than half of them
+   pinned at full marks, which is a component carrying no information.
+
+   Twist is the one worth explaining. The previous pair asked for 130 deg/km
+   against a twisty-road challenge that asks 140, but no recorded drive has
+   ever passed 68 and the median is under 20, so Road scored a flat zero on
+   almost everything and a quarter of the grade did nothing. These roads are
+   not those roads.
+
+   Across the 66 the ladder now reads E 3, D 12, C 27, B 19, A 5, centred on
+   C with the best drive at 82. S is deliberately just out of reach of
+   anything driven so far. gradeSpread() reprints all of this. */
+const GR_SM=[38,88];        // smoothness, 0-100
+const GR_TW=[8,60];         // degrees per km
+const GR_G=[.17,.48];       // peak g
+const GR_KM=[3,55];         // km
 const GR_NEW=14;            // most that breaking new ground can add
 function gradeOf(d){
   if(!d||d.dist<1500)return null;

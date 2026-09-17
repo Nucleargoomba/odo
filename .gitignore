@@ -11,6 +11,7 @@ Thumbs.db
 /files (*)/
 /files (*).zip
 
-# personal data: a backup holds every gps point ever recorded
-odo-backup-*.json
+# personal data: a backup holds every gps point ever recorded.
+# no extension: it must cover .json and the gzipped copy alike.
+odo-backup-*
 *.gpx

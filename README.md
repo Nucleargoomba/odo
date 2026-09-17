@@ -171,12 +171,25 @@ roads could not beat 78. Finding new road is a bonus for how you drove, not a
 tax on driving the same road well.
 
 The anchors — where each component reads nothing and where it reads full marks
-— are the part still worth arguing with. Smoothness is set from the measured
-spread of 66 drives (33 to 97, median 61) so an ordinary drive sits in the
-middle of the ramp; the other three are estimates. `gradeSpread()` prints the
-letter counts and the 10th, 50th and 90th percentile of every input, raw and
-scored, so the anchors can be moved against real numbers rather than guessed
-at again.
+— are set against the 66 recorded drives rather than estimated. Each pair sits
+at roughly the 5th and 95th percentile of what those drives actually produced:
+smoothness 36 to 86, twist 10 to 57°/km, peak g 0.19 to 0.47, distance 5 to
+70 km.
+
+Twist is the one worth explaining. The first attempt asked for 130°/km,
+reasoning from a twisty-road challenge that asks 140. No recorded drive has
+ever passed 68 and the median is under 20, so Road scored a flat zero on
+almost everything and a quarter of the grade did nothing at all. These roads
+are not those roads.
+
+Distance tops out at 55 km rather than the 70 the long drives reach, because
+the drives fall into two clumps — a ten kilometre commute and a fifty
+kilometre run — and a ramp reaching the far end left more than half of them
+pinned at full marks, which is a component carrying no information.
+
+Across the 66 the ladder reads E 3, D 13, C 29, B 16, A 5, centred on C with
+the best drive at 82. S is deliberately just out of reach of anything driven
+so far. `gradeSpread()` reprints all of it from your own data.
 
 ## Clean run
 
