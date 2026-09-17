@@ -583,3 +583,51 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
   .stat .v{font-size:24px}
   .live-grid .v{font-size:21px}
 }
+
+/* ---------- drive grade ---------- */
+.grade{margin-top:12px}
+.gr-top{display:flex;gap:14px;align-items:center}
+.gr-letter{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:44px;
+  line-height:1;width:64px;height:64px;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;border-radius:12px;border:1px solid var(--line-2);
+  background:var(--face);color:var(--grade,var(--chalk))}
+.gr-S{--grade:#E8A33D;border-color:rgba(232,163,61,.5);
+  box-shadow:0 0 22px rgba(232,163,61,.20)}
+.gr-A{--grade:#8FBF6B}
+.gr-B{--grade:#4E86A8}
+.gr-C{--grade:#847E6C}
+.gr-D{--grade:#A8764E}
+.gr-E{--grade:#D2402A}
+.gr-meta{flex:1;min-width:0}
+.gr-score{font-family:'IBM Plex Mono',monospace;font-size:15px;margin-bottom:6px}
+.gr-score s{text-decoration:none;color:var(--slate);font-size:11px}
+.gr-bars{display:flex;flex-direction:column;gap:3px}
+.gr-bar{position:relative;height:14px;background:#0A0906;border-radius:3px;overflow:hidden}
+.gr-bar i{position:absolute;top:0;bottom:0;left:0;background:var(--line-2);border-radius:3px}
+.gr-bar span{position:relative;display:flex;justify-content:space-between;gap:8px;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:14px;padding:0 5px;
+  letter-spacing:.04em;white-space:nowrap}
+.gr-bar s{text-decoration:none;color:var(--slate)}
+.gr-combo{margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:11px;
+  color:var(--slate);letter-spacing:.04em}
+.gr-combo b{color:var(--amber);font-size:13px}
+.gr-combo s{text-decoration:none;font-size:9px;color:var(--slate);
+  border:1px solid var(--line-2);border-radius:3px;padding:1px 4px;margin-left:6px}
+
+/* ---------- route medals ---------- */
+.r-medal{font-size:13px;font-weight:400}
+
+/* ---------- the eight borders ---------- */
+.bd-svg{display:block;width:100%;max-width:250px;margin:8px auto 2px}
+.bd-ring{fill:none;stroke:var(--line);stroke-width:1}
+.bd-ray{stroke:var(--amber);stroke-width:2;stroke-linecap:round;opacity:.85}
+.bd-dot{fill:var(--amber)}
+.bd-l{fill:var(--slate);font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:.08em}
+.bd-list{display:grid;grid-template-columns:1fr auto auto;gap:3px 12px;margin-top:10px}
+.bd-row{display:contents}
+.bd-row .k{font-size:12px;text-transform:capitalize}
+.bd-row .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--amber);
+  text-align:right}
+.bd-row .w{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);
+  text-align:right}

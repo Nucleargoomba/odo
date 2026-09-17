@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v14';
+const BUILD='2026-09-17 · grades+combo+borders · assets v15';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -161,7 +161,7 @@ function ggSmooth(s,w){
   for(let i=0;i<s.length;i++){
     let a=0,b=0,c=0;
     for(let j=Math.max(0,i-h),e=Math.min(s.length,i+h+1);j<e;j++){a+=s[j][0];b+=s[j][1];c++}
-    out.push([a/c,b/c,s[i][2]]);
+    out.push([a/c,b/c,s[i][2],s[i][3]]);
   }
   return out;
 }
@@ -183,7 +183,7 @@ function ggPoints(d){
     const lon=(v2-v0)/(dtA+dtB)/9.81;
     if(!isFinite(lat)||!isFinite(lon))continue;
     if(Math.abs(lat)>GG_CAP||Math.abs(lon)>GG_CAP)continue;
-    out.push([+lat.toFixed(3),+lon.toFixed(3),p[i][3]]);
+    out.push([+lat.toFixed(3),+lon.toFixed(3),p[i][3],p[i][2]]);
   }
   return out;
 }
@@ -493,6 +493,246 @@ function renderPersp(totKm,hours,climb,topKmh,litres,cost){
   $('perspMisc').innerHTML=m.join('');
 }
 
+/* ============ the clean run ============
+   The longest stretch of a drive that never provoked the accelerometer.
+   Standing still provokes nothing either, so stopped time is taken out before
+   the stretch is measured — otherwise a wait at a level crossing would
+   out-score any real piece of driving.
+
+   Jolts only carry a timestamp from the build that started recording them, so
+   an older drive has no sensor answer. It falls back to the gps estimate,
+   which is shown but never paid for: that is the same footing smoothness sits
+   on, and for the same reason — there is nothing to calibrate it against. */
+const COMBO_STEP=150;        // seconds of clean driving per 0.1x
+const COMBO_CAP=2.0;
+const COMBO_MIN=180;         // under three minutes of movement, say nothing
+
+/* cumulative moving seconds, so a stretch is measured in driving and not in
+   waiting. A gap longer than 30 s is a dropped fix rather than a stop, and
+   counting it either way would be a guess, so it counts as neither. */
+function movingClock(d){
+  const p=d.pts||[], ts=[], cum=[];
+  let run=0;
+  for(let i=0;i<p.length;i++){
+    if(i){
+      const dt=p[i][2]-p[i-1][2];
+      if(dt>0&&dt<=30&&(p[i][3]>5||p[i-1][3]>5))run+=dt;
+    }
+    ts.push(p[i][2]);cum.push(run);
+  }
+  return {ts,cum,total:run};
+}
+function movedBy(clk,t){
+  const ts=clk.ts, cum=clk.cum;
+  if(!ts.length)return 0;
+  if(t<=ts[0])return 0;
+  const last=ts.length-1;
+  if(t>=ts[last])return cum[last];
+  let lo=0,hi=last;
+  while(lo+1<hi){const m=(lo+hi)>>1;if(ts[m]<=t)lo=m;else hi=m}
+  const span=ts[hi]-ts[lo];
+  return span>0?cum[lo]+(cum[hi]-cum[lo])*((t-ts[lo])/span):cum[lo];
+}
+/* gps stand-in for a drive recorded before jolt times were kept. The sensor
+   arms at 3.5 m/s2 and re-arms below 2.2; this mirrors that ratio so the two
+   paths at least count the same kind of event. */
+function gpsJolts(d){
+  const s=ggSmooth(ggPoints(d),GG_JWIN), out=[];
+  let armed=false;
+  for(const q of s){
+    const m=Math.hypot(q[0],q[1]);
+    if(m>GG_BUSY){if(!armed){out.push(q[3]);armed=true}}
+    else if(m<GG_BUSY*0.63)armed=false;
+  }
+  return out;
+}
+function comboOf(d){
+  if(!d||!d.pts||d.pts.length<6)return null;
+  const sensor=Array.isArray(d.joltT);
+  const clk=movingClock(d);
+  if(clk.total<COMBO_MIN)return null;
+  const js=(sensor?d.joltT:gpsJolts(d)).filter(t=>t>0&&t<d.dur).sort((a,b)=>a-b);
+  const marks=[0].concat(js,[d.dur]);
+  let best=0,at=0;
+  for(let i=1;i<marks.length;i++){
+    const run=movedBy(clk,marks[i])-movedBy(clk,marks[i-1]);
+    if(run>best){best=run;at=marks[i-1]}
+  }
+  const mult=Math.min(COMBO_CAP,1+Math.floor(best/COMBO_STEP)/10);
+  return {secs:Math.round(best),mult:+mult.toFixed(1),jolts:js.length,
+          at:Math.round(at),sensor,share:best/Math.max(clk.total,1)};
+}
+function comboXp(cb){return cb?Math.round((cb.mult-1)*10)*6:0}
+
+/* ============ drive grade ============
+   Five things a drive can be good at, each scored 0-1 and weighted. A
+   component with no data drops out and the rest are re-weighted, so a phone
+   with no motion sensor is graded on what it does know rather than marked
+   down for what it does not.
+
+   Control and Commitment pull against each other on purpose: holding a high
+   line smoothly is the thing worth grading, and either one alone is easy.
+
+   These bands are a first cut and have never met your drives. gradeSpread()
+   prints the distribution — if it piles everything on one letter the ladder
+   is decoration, and the ramps below are what to move. */
+const GRADE_BANDS=[[90,'S'],[80,'A'],[68,'B'],[55,'C'],[40,'D'],[0,'E']];
+const ramp=(v,a,b)=>Math.max(0,Math.min(1,(v-a)/(b-a)));
+function gradeOf(d){
+  if(!d||d.dist<1500)return null;
+  const parts=[];
+  const sm=smoothOf(d);
+  if(sm!=null)parts.push({k:'Control',w:30,s:ramp(sm,35,95),d:sm+'/100'});
+  if(d.twist!=null)parts.push({k:'Road',w:25,s:ramp(d.twist,30,160),
+    d:Math.round(d.twist)+'°/km'});
+  const newKm=(d.newCells||0)*CELL/1000;
+  parts.push({k:'Discovery',w:25,s:ramp(newKm,0,5),d:newKm.toFixed(1)+' km new'});
+  const g=gOf(d);
+  if(g!=null)parts.push({k:'Commitment',w:20,s:ramp(g,.20,.60),d:g.toFixed(2)+' g'});
+  parts.push({k:'Journey',w:15,s:ramp(km(d.dist),5,100),
+    d:Math.round(km(d.dist))+' km'});
+  const wsum=parts.reduce((a,p)=>a+p.w,0);
+  if(!wsum)return null;
+  const score=Math.round(parts.reduce((a,p)=>a+p.s*p.w,0)/wsum*100);
+  return {score,letter:GRADE_BANDS.find(b=>score>=b[0])[1],parts};
+}
+/* an honest look at whether the bands discriminate at all */
+function gradeSpread(){
+  const t={};
+  drives.forEach(d=>{const g=gradeOf(d);if(g)t[g.letter]=(t[g.letter]||0)+1});
+  return t;
+}
+
+/* ============ route medals ============
+   Distance piled onto one route, which is a different achievement from
+   driving it quickly: it is the road you actually know. */
+const ROUTE_MEDALS=[[100,'\u{1F949}','Bronze'],[250,'\u{1F948}','Silver'],
+  [500,'\u{1F947}','Gold'],[1000,'\u{1F4A0}','Platinum'],
+  [2500,'\u{1F451}','Crown'],[5000,'\u{1F3C6}','Legend']];
+function routeMedal(r){
+  const tot=km(r.runs.reduce((a,d)=>a+d.dist,0));
+  let got=null;
+  ROUTE_MEDALS.forEach(m=>{if(tot>=m[0])got=m});
+  const next=ROUTE_MEDALS.find(m=>tot<m[0])||null;
+  return {km:tot,medal:got,next,to:next?next[0]-tot:0};
+}
+
+/* ============ the eight borders ============
+   How far out you have reached in each compass sector, measured from the
+   place you set off from most often. A sector only counts past 2 km so that
+   wandering round your own town cannot set a border.
+
+   borderPushes() replays the drives in the order you made them, the way
+   markPbs() and firstTimeSegments() do, so a push keeps the credit it earned
+   on the day even after a later drive goes further. */
+const BORDER_MIN=2000;      // metres: closer than this is not a direction
+const BORDER_STEP=1000;     // metres of new ground before a push is worth xp
+function borderSector(home,p){
+  const far=hav(home.lat,home.lng,p[0],p[1]);
+  if(far<BORDER_MIN)return null;
+  return {far,i:Math.floor(((bearing(home.lat,home.lng,p[0],p[1])+22.5)%360)/45)};
+}
+function borders(){
+  const home=homePlace();
+  if(!home)return null;
+  const best=COMPASS.map(()=>null);
+  drives.slice().sort((a,b)=>a.start-b.start).forEach(d=>{
+    (d.pts||[]).forEach(p=>{
+      const s=borderSector(home,p);
+      if(!s)return;
+      if(!best[s.i]||s.far>best[s.i].m)
+        best[s.i]={m:s.far,lat:p[0],lng:p[1],when:d.start,id:d.id};
+    });
+  });
+  return {home,dirs:COMPASS.map((c,i)=>Object.assign({dir:c,m:0},best[i]||{}))};
+}
+let borderCache=null;
+function borderPushes(){
+  if(borderCache)return borderCache;
+  const out=new Map(), home=homePlace();
+  if(!home)return borderCache=out;
+  const best=COMPASS.map(()=>0);
+  drives.slice().sort((a,b)=>a.start-b.start).forEach(d=>{
+    /* measured against where the border stood before the drive, not against
+       the point before. Driving steadily outward extends the sector a few
+       metres at a time, and per-point increments would score a 50 km push as
+       a string of 100 m ones and pay for none of them. */
+    const before=best.slice();
+    (d.pts||[]).forEach(p=>{
+      const s=borderSector(home,p);
+      if(s&&s.far>best[s.i])best[s.i]=s.far;
+    });
+    let won=null;
+    for(let i=0;i<COMPASS.length;i++){
+      /* the first time a sector is touched there was no border to push */
+      if(before[i]<=0||best[i]<=before[i])continue;
+      const by=best[i]-before[i];
+      if(!won||by>won.by)won={dir:COMPASS[i],by,to:best[i]};
+    }
+    if(won&&won.by>=BORDER_STEP)out.set(d.id,won);
+  });
+  return borderCache=out;
+}
+
+/* ---------- grade, medals and borders on screen ---------- */
+function gradeHtml(d){
+  const g=gradeOf(d), cb=comboOf(d);
+  if(!g&&!cb)return '';
+  let h='';
+  if(g)h+='<div class="gr-top">'+
+    '<div class="gr-letter gr-'+g.letter+'">'+g.letter+'</div>'+
+    '<div class="gr-meta"><div class="gr-score">'+g.score+'<s>/100</s></div>'+
+    '<div class="gr-bars">'+g.parts.map(p=>
+      '<div class="gr-bar"><i style="width:'+Math.round(p.s*100)+'%"></i>'+
+      '<span>'+p.k+'<s>'+esc(p.d)+'</s></span></div>').join('')+
+    '</div></div></div>';
+  if(cb)h+='<div class="gr-combo"><b>×'+cb.mult.toFixed(1)+'</b> '+
+    mins(cb.secs)+' unbroken'+
+    (cb.jolts?' · '+cb.jolts+' jolt'+(cb.jolts>1?'s':''):' · not one jolt')+
+    (cb.sensor?'':'<s>gps</s>')+'</div>';
+  return h;
+}
+function medalNote(md){
+  if(!md.next)return ' · <b>'+Math.round(md.km).toLocaleString()+
+    ' km</b> on this road — every medal taken';
+  return ' · <b>'+Math.round(md.km).toLocaleString()+' km</b> on this road, '+
+    Math.round(md.to).toLocaleString()+' km to '+md.next[2]+' '+md.next[1];
+}
+function bordersHtml(){
+  const b=borders();
+  if(!b)return '<div class="empty" style="border:0">'+
+    'Drive a little further out and your borders appear here.</div>';
+  const max=Math.max.apply(null,b.dirs.map(x=>x.m));
+  if(max<=0)return '<div class="empty" style="border:0">Nothing yet more than '+
+    (BORDER_MIN/1000)+' km from home.</div>';
+  const S=240,C=S/2,R=C-26;
+  let rings='',spokes='',labels='';
+  [.33,.66,1].forEach(k=>rings+='<circle class="bd-ring" cx="'+C+'" cy="'+C+'" r="'+
+    (k*R).toFixed(1)+'"/>');
+  b.dirs.forEach((x,i)=>{
+    const a=(i*45-90)*Math.PI/180;
+    const len=x.m>0?Math.max(6,x.m/max*R):0;
+    const ex=C+Math.cos(a)*len, ey=C+Math.sin(a)*len;
+    const lx=C+Math.cos(a)*(R+14), ly=C+Math.sin(a)*(R+14);
+    if(len){
+      spokes+='<line class="bd-ray" x1="'+C+'" y1="'+C+'" x2="'+ex.toFixed(1)+
+        '" y2="'+ey.toFixed(1)+'"/>'+
+        '<circle class="bd-dot" cx="'+ex.toFixed(1)+'" cy="'+ey.toFixed(1)+'" r="3"/>';
+    }
+    labels+='<text class="bd-l" x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+
+      '" text-anchor="middle">'+x.dir+'</text>';
+  });
+  const list=b.dirs.slice().sort((p,q)=>q.m-p.m).map(x=>
+    '<div class="bd-row"><span class="k">'+dirWord(x.dir)+'</span><span class="v">'+
+    (x.m?km(x.m).toFixed(1)+' km':'–')+'</span><span class="w">'+
+    (x.when?new Date(x.when).toLocaleDateString(undefined,
+      {month:'short',year:'numeric'}):'')+'</span></div>').join('');
+  return '<div class="cap">Furthest reached in each direction, from '+
+    esc(placeLabel(b.home)||'home')+' · outer ring '+km(max).toFixed(0)+' km</div>'+
+    '<svg class="bd-svg" viewBox="0 0 '+S+' '+S+'">'+rings+spokes+labels+'</svg>'+
+    '<div class="bd-list">'+list+'</div>';
+}
+
 /* ============ badges ============ */
 const BADGES=[
   {ic:'🔑',n:'First drive',f:()=>drives.length>=1},
@@ -615,12 +855,15 @@ function renderRoutes(){
     return;
   }
   box.innerHTML=rs.map(r=>{
-    const w=bestWindow(r.runs);
+    const w=bestWindow(r.runs), md=routeMedal(r);
     const dl=r.last-r.med, sign=dl<0?'−':'+';
     const cls=r.last<=r.best*1.02?'best':(dl>r.med*.12?'bad':'');
     return '<div class="route" data-key="'+r.key+'">'+
       '<div class="r-top"><div class="r-name">'+esc(r.name)+'</div>'+
-      '<div class="r-runs">'+r.runs.length+' runs · '+km(r.dist).toFixed(1)+' km</div></div>'+
+      '<div class="r-runs">'+(md.medal?'<b class="r-medal" title="'+
+        esc(md.medal[2]+' · '+Math.round(md.km)+' km on this route')+'">'+
+        md.medal[1]+'</b> ':'')+r.runs.length+' runs · '+
+        km(r.dist).toFixed(1)+' km</div></div>'+
       '<div class="r-times">'+
         '<div><div class="k">Last</div><div class="v '+cls+'">'+mins(r.last)+'</div></div>'+
         '<div><div class="k">Median</div><div class="v">'+mins(r.med)+'</div></div>'+
@@ -630,7 +873,7 @@ function renderRoutes(){
       scatter(r)+
       '<div class="r-note">Last run <b>'+sign+Math.abs(Math.round(dl/60))+' min</b> against your median'+
       (w?' · quickest when you leave around <b>'+w.label+'</b> ('+mins(w.med)+', '+w.n+' runs)':'')+
-      rainNote(r)+costNote(r)+
+      medalNote(md)+rainNote(r)+costNote(r)+
       '</div></div>';
   }).join('');
   box.querySelectorAll('.route').forEach(b=>b.onclick=()=>openRoute(b.dataset.key));
@@ -836,7 +1079,7 @@ $('btnTest').onclick=()=>{
 /* ============ recording ============ */
 let rec=null,watchId=null,tick=null,wake=null;
 const MAXACC=45, MAXSPD=90;
-let motionOn=false,gPeak=0,harsh=0,gSum=0,gN=0;
+let motionOn=false,gPeak=0,harsh=0,gSum=0,gN=0,jolts=[];
 let grav={x:0,y:0,z:0},gravInit=false,inJolt=false;
 
 /* The phone's orientation in the mount is unknown, so estimate the gravity
@@ -860,7 +1103,8 @@ function onMotion(e){
   gSum+=g;gN++;
   // one jolt counts once, however long it lasts, so a long hard brake
   // is not scored as a hundred separate events
-  if(mag>3.5){if(!inJolt){harsh++;inJolt=true}}
+  if(mag>3.5){if(!inJolt){harsh++;inJolt=true;
+    if(rec)jolts.push(Math.round((Date.now()-rec.start)/1000))}}
   else if(mag<2.2)inJolt=false;
 }
 async function askMotion(){
@@ -874,7 +1118,7 @@ async function askMotion(){
 async function start(){
   if(!navigator.geolocation)return toast('This browser has no GPS access.');
   rec={start:Date.now(),dist:0,top:0,pts:[],last:null,lastAcc:null,gain:0,alt:null,idle:0};
-  gPeak=0;harsh=0;gSum=0;gN=0;gravInit=false;inJolt=false;
+  gPeak=0;harsh=0;gSum=0;gN=0;gravInit=false;inJolt=false;jolts=[];
   const gotMotion=await askMotion();
   if(!gotMotion)toast('No motion sensor — g and smoothness will be blank.');
   $('btnRec').textContent='Stop';$('btnRec').classList.add('live');
@@ -945,6 +1189,7 @@ async function stop(){
     g:gN?+gPeak.toFixed(2):null,
     gAvg:gN?+(gSum/gN).toFixed(3):null,
     smooth:gN?smoothness(harsh,dur):null,
+    joltT:gN?jolts.slice():null,
     twist:twistOf(rec.pts),
     gainClean:cleanGain(rec.pts),
     accel:accelOf({pts:rec.pts}),
@@ -956,7 +1201,7 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
@@ -1002,10 +1247,11 @@ function openDrive(id){
   $('shFuel').innerHTML=l!=null?(l.toFixed(1)+' L'+(cst?'<s>€'+cst.toFixed(2)+'</s>':'')):'–';
   $('shElev').innerHTML=elevSvg(d);
   $('shGg').innerHTML=ggSvg(d);
+  $('shGrade').innerHTML=gradeHtml(d);
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
-    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;roadCache=null;await saveV2(K_DRV,drives);
+    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;roadCache=null;await saveV2(K_DRV,drives);
     $('sheet').classList.remove('on');render();toast('Drive deleted.');
   };
   setTimeout(()=>{
@@ -1157,7 +1403,7 @@ $('fileIn').onchange=e=>{
         await saveV2(K_CAR,cars);
       }
       if(raw.settings){settings=Object.assign(settings,raw.settings);await saveV2(K_SET,settings)}
-      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;await saveV2(K_DRV,drives);render();
+      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;await saveV2(K_DRV,drives);render();
       toast(add.length+' drives restored.');
     }catch(err){toast("That file isn't an Odo backup.")}
     e.target.value='';
@@ -1779,7 +2025,7 @@ $('gpxIn').onchange=async e=>{
       inc.forEach(d=>{if(!have.has(d.id)&&d.dist>150){drives.push(d);added++}});
     }catch(err){}
   }
-  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;await saveV2(K_DRV,drives);render();
+  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;await saveV2(K_DRV,drives);render();
   toast(added?added+' tracks imported.':'Nothing usable in that file.');
   e.target.value='';
 };
@@ -2222,6 +2468,7 @@ function renderStats(){
   $('statSpeed').innerHTML=chartSpeed(ds);
   $('statWeek').innerHTML=chartWeekHour(ds);
   $('statRose').innerHTML=chartCompass(ds);
+  $('statBorders').innerHTML=bordersHtml();
   $('statMonth').innerHTML=chartMonthly(ds);
   $('statRec').innerHTML=chartRecords();
   $('statRoute').innerHTML=chartRouteTrend();
@@ -3693,6 +3940,15 @@ function xpBreakdown(d){
   if(sh.gaps)out.push({k:'Filled a gap',v:sh.gaps*6,
     d:spell(sh.gaps)+' enclosed cell'+(sh.gaps>1?'s':'')});
   if(sh.rev)out.push({k:'Other direction',v:30,d:'first run the other way'});
+  /* a gps-derived clean run is shown in the sheet but never paid for */
+  if(Array.isArray(d.joltT)){
+    const cb=comboOf(d);
+    if(cb&&cb.mult>1)out.push({k:'Clean run',v:comboXp(cb),
+      d:mins(cb.secs)+' unbroken · ×'+cb.mult.toFixed(1)});
+  }
+  const bp=borderPushes().get(d.id);
+  if(bp)out.push({k:'Pushed the border',v:Math.min(60,20+Math.round(bp.by/1000)*4),
+    d:dirWord(bp.dir)+' by '+(bp.by/1000).toFixed(1)+' km'});
   if(d.pb)out.push({k:'Route best',v:40,d:'quickest run on this route at the time'});
   return out;
 }

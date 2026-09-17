@@ -144,8 +144,66 @@ genuinely flat road still returns 0 by either method.
 Per drive: distance, a flat logging bonus, long run, after dark, smoothness,
 twistiness (ramping in from 80°/km), new road, climbing, endurance over two
 hours, rain, snow, fog, driving through sunrise or sunset, filling an enclosed
-gap in your coverage, and the first run down a road in the opposite direction.
+gap in your coverage, the first run down a road in the opposite direction, a
+clean run (sensor only), and pushing one of your eight borders outward.
 
 Standing pots: day streak, completed weekly challenges, three or more distinct
 routes in a week, each logged service (more if done before it fell due), and
 any tank that beat your own measured consumption.
+
+## Drive grade
+
+Every drive over 1.5 km gets a letter, S down to E, from five components:
+Control (smoothness), Road (twistiness), Discovery (new road), Commitment
+(peak g) and Journey (distance). Control and Commitment pull against each
+other on purpose — either one alone is easy, and holding a high line smoothly
+is the thing worth grading.
+
+A component with no data drops out and the rest are re-weighted, so a phone
+with no motion sensor is graded on what it does know rather than marked down
+for what it does not.
+
+The bands are a first cut and have not yet met real drives. `gradeSpread()` in
+the console prints how many drives landed on each letter. If it piles
+everything onto one, the ladder is decoration and the ramps in `gradeOf()` are
+what to move — the same lesson as the smoothness threshold.
+
+## Clean run
+
+The longest stretch of a drive that never provoked the accelerometer, worth a
+multiplier from ×1.0 to ×2.0, one step per 150 seconds. It is computed after
+the drive and shown in the sheet, so there is nothing to watch while driving.
+
+Standing still provokes nothing either, so stopped time is taken out before the
+stretch is measured: a drive with a ten-minute wait in the middle of it scores
+the driving, not the waiting. Otherwise a level crossing would out-score any
+real piece of road.
+
+The sensor only ever stored a jolt *count*, so drives recorded before this
+build have no timings to work from. They fall back to a gps estimate, which is
+shown with a `gps` marker but never paid xp — the same footing smoothness sits
+on, and for the same reason: there is nothing to calibrate it against.
+
+## Route medals
+
+Distance piled onto a single route, which is a different achievement from
+driving it quickly: it is the road you actually know. Bronze at 100 km, then
+Silver, Gold, Platinum, Crown and Legend at 5 000 km. Shown on each route with
+the distance still to go.
+
+## The eight borders
+
+How far out you have reached in each compass sector, measured from the place
+you set off from most often. A point under 2 km from home cannot set a border,
+so circling your own town does not count as a direction.
+
+`borderPushes()` replays the drives in the order you made them, the way
+`markPbs()` and `firstTimeSegments()` do, so a push keeps the xp it earned on
+the day even after a later drive goes further. The push is measured against
+where the border stood *before the drive*, not against the previous point:
+driving steadily outward extends a sector a few metres at a time, and per-point
+increments would score a 50 km push as a string of 200 m ones and pay for none
+of them.
+
+The first drive into an empty sector earns nothing — there was no border there
+to push.
