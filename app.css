@@ -292,6 +292,16 @@ input:focus{outline:2px solid rgba(232,163,61,.5);outline-offset:1px}
 .elev path.l{fill:none;stroke:var(--amber);stroke-width:1.6}
 .elev .cap{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;
   color:var(--slate);text-transform:uppercase;margin-bottom:6px}
+.gg{padding:14px 16px;border-top:1px solid var(--line)}
+.gg:empty,.elev:empty{display:none;padding:0;border-top:0}
+.gg .cap{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;
+  color:var(--slate);text-transform:uppercase;margin-bottom:8px}
+.gg-svg{width:100%;max-width:230px;margin:0 auto;height:auto;display:block}
+.gg-ring{fill:none;stroke:var(--line-2);stroke-width:1}
+.gg-ax{stroke:var(--line-2);stroke-width:1}
+.gg-t{font-family:'IBM Plex Mono',monospace;font-size:10px;fill:var(--slate)}
+.gg-key{margin-top:9px;text-align:center;font-family:'IBM Plex Mono',monospace;
+  font-size:9px;letter-spacing:.06em;color:var(--slate);text-transform:uppercase}
 .sheet-foot{padding:12px 16px}
 .leaflet-container{background:#0A0906}
 .leaflet-tile{filter:grayscale(.85) invert(.92) contrast(.85) brightness(.92)}

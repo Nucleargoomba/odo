@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v8';
+const BUILD='2026-09-17 · twist v3 · assets v9';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -121,6 +121,80 @@ function twistLabel(t){
   if(t==null)return '–';
   return t>=220?'serpentine':t>=140?'twisty':t>=80?'flowing':t>=40?'gentle':'straight';
 }
+
+/* ============ g from gps ============
+   A phone that reports no devicemotion still records where it was and how
+   fast it was going, and both axes of acceleration fall out of that.
+   Longitudinal is the change in recorded speed over time. Lateral is how
+   quickly the heading turns multiplied by the speed — the v*omega form of
+   v^2/r, which beats fitting a circle through three scattered fixes.
+
+   The trap twistOf() documents applies here too: neighbouring fixes are
+   mostly error, and taking a magnitude rectifies it so it can only ever add.
+   So a sample is thrown away unless the car is properly moving, both legs are
+   long enough for the bearing to mean anything, and the timing is sane. A
+   dropout leaves two distant fixes many seconds apart, and is skipped rather
+   than read as one enormous slow corner. */
+const GG_MINSPD=20/3.6, GG_MINLEG=10, GG_MAXDT=4, GG_CAP=1.4;
+const GG_JOLT=.35, GG_CALM=.22;   // 3.5 and 2.2 m/s^2, the thresholds onMotion uses
+/* Coordinates are stored to five decimals, about 1.1 m, and a bearing taken
+   over a 13 m leg inherits roughly 5 degrees of that rounding. It works out at
+   about 0.15 g of scatter on every single sample, whatever the speed. The
+   average rides over it, but a peak taken sample by sample lands on the worst
+   excursion instead of the hardest corner: tested against noise-free arcs it
+   read 11-59% high. Averaged over five samples, about five seconds, the same
+   test lands within 1.4-7.6%, and a long brake is untouched because the
+   longitudinal figure never had the problem. */
+const GG_WIN=5;
+function ggSmooth(s){
+  const h=GG_WIN>>1, out=[];
+  for(let i=0;i<s.length;i++){
+    let a=0,b=0,c=0;
+    for(let j=Math.max(0,i-h),e=Math.min(s.length,i+h+1);j<e;j++){a+=s[j][0];b+=s[j][1];c++}
+    out.push([a/c,b/c,s[i][2]]);
+  }
+  return out;
+}
+
+function ggPoints(d){
+  const p=d&&d.pts, out=[];
+  if(!p||p.length<3)return out;
+  for(let i=1;i<p.length-1;i++){
+    const dtA=p[i][2]-p[i-1][2], dtB=p[i+1][2]-p[i][2];
+    if(dtA<=0||dtB<=0||dtA>GG_MAXDT||dtB>GG_MAXDT)continue;
+    const v0=p[i-1][3]/3.6, v1=p[i][3]/3.6, v2=p[i+1][3]/3.6;
+    if(v1<GG_MINSPD)continue;
+    if(hav(p[i-1][0],p[i-1][1],p[i][0],p[i][1])<GG_MINLEG)continue;
+    if(hav(p[i][0],p[i][1],p[i+1][0],p[i+1][1])<GG_MINLEG)continue;
+    let db=bearing(p[i][0],p[i][1],p[i+1][0],p[i+1][1])-
+           bearing(p[i-1][0],p[i-1][1],p[i][0],p[i][1]);
+    if(db>180)db-=360; else if(db<-180)db+=360;
+    const lat=v1*(db*Math.PI/180)/((dtA+dtB)/2)/9.81;
+    const lon=(v2-v0)/(dtA+dtB)/9.81;
+    if(!isFinite(lat)||!isFinite(lon))continue;
+    if(Math.abs(lat)>GG_CAP||Math.abs(lon)>GG_CAP)continue;
+    out.push([+lat.toFixed(3),+lon.toFixed(3),p[i][3]]);
+  }
+  return out;
+}
+/* peak combined g, and a jolt count on the footing the sensor uses: one event
+   however long it lasts, so a long hard brake is not a hundred separate jolts */
+function ggOf(d){
+  const s=ggSmooth(ggPoints(d));
+  if(s.length<12)return null;
+  let peak=0, hard=0, inJolt=false;
+  for(const q of s){
+    const m=Math.hypot(q[0],q[1]);
+    if(m>peak)peak=m;
+    if(m>=GG_JOLT){if(!inJolt){hard++;inJolt=true}}
+    else if(m<GG_CALM)inJolt=false;
+  }
+  return {g:+peak.toFixed(2),hard,n:s.length};
+}
+/* a real sensor reading wins where there is one; gps fills in where there is not */
+function gOf(d){return d.g!=null?d.g:(d.gGps!=null?d.gGps:null)}
+function smoothOf(d){return d.smooth!=null?d.smooth:(d.smoothGps!=null?d.smoothGps:null)}
+function gFromGps(d){return d.g==null&&d.gGps!=null}
 
 /* ============ maths ============ */
 const R=6371000;
@@ -389,7 +463,7 @@ const BADGES=[
   {ic:'🏁',n:'50 drives',f:()=>drives.length>=50},
   {ic:'🧭',n:'20 new cells',f:()=>coverage().unique>=200},
   {ic:'🔁',n:'A route ×10',f:()=>buildRoutes().some(r=>r.runs.length>=10)},
-  {ic:'🪶',n:'Smooth 95',f:()=>drives.some(d=>d.smooth!=null&&d.smooth>=95)},
+  {ic:'🪶',n:'Smooth 95',f:()=>drives.some(d=>smoothOf(d)!=null&&smoothOf(d)>=95)},
   {ic:'⛰',n:'1 000 m climbed',f:()=>drives.reduce((a,d)=>a+(d.gain||0),0)>=1000}
 ];
 
@@ -429,8 +503,8 @@ function render(){
   $('sWeek').innerHTML=km(drives.filter(d=>d.start>wk).reduce((a,d)=>a+d.dist,0)).toFixed(1)+'<s>km</s>';
   $('sClimb').innerHTML=Math.round(climb).toLocaleString()+'<s>m</s>';
   $('sIdle').innerHTML=(totSec?Math.round(idleSec/totSec*100):0)+'<s>%</s>';
-  const gs=drives.map(d=>d.g).filter(v=>v!=null);
-  const sm=drives.map(d=>d.smooth).filter(v=>v!=null);
+  const gs=drives.map(gOf).filter(v=>v!=null);
+  const sm=drives.map(smoothOf).filter(v=>v!=null);
   $('sG').innerHTML=gs.length?Math.max(...gs).toFixed(2)+'<s>g</s>':'–';
   $('sSmooth').innerHTML=sm.length?Math.round(sm.reduce((a,b)=>a+b,0)/sm.length)+'<s>/100</s>':'–';
   $('sFuel').innerHTML=litres>0?litres.toFixed(0)+'<s>L</s>':'–';
@@ -871,10 +945,12 @@ function openDrive(id){
   $('shClimb').textContent=(gainOf(d)!=null?gainOf(d):0)+' m';
   $('shClimb').title=gainSource(d)||'measured on this drive alone';
   $('shIdle').textContent=d.idle?Math.round(d.idle/60)+'′':'0′';
-  $('shG').textContent=d.g!=null?d.g.toFixed(2):'–';
+  const gv=gOf(d);
+  $('shG').innerHTML=gv!=null?gv.toFixed(2)+(gFromGps(d)?'<s>gps</s>':''):'–';
   const l=fuelOf(d),cst=costOf(d);
   $('shFuel').innerHTML=l!=null?(l.toFixed(1)+' L'+(cst?'<s>€'+cst.toFixed(2)+'</s>':'')):'–';
   $('shElev').innerHTML=elevSvg(d);
+  $('shGg').innerHTML=ggSvg(d);
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
@@ -1133,8 +1209,8 @@ function records(){
   drives.forEach(d=>{const k=dayKey(d.start);byDay.set(k,(byDay.get(k)||0)+d.dist)});
   const bestDay=Math.max(...byDay.values());
   const tw=drives.filter(d=>d.twist!=null);
-  const sm=drives.filter(d=>d.smooth!=null);
-  const gg=drives.filter(d=>d.g!=null);
+  const sm=drives.filter(d=>smoothOf(d)!=null);
+  const gg=drives.filter(d=>gOf(d)!=null);
   const out=[
     {k:'Longest drive',v:km(Math.max(...drives.map(d=>d.dist))).toFixed(1)+' km'},
     {k:'Biggest day',v:km(bestDay).toFixed(1)+' km'},
@@ -1143,8 +1219,8 @@ function records(){
   ];
   if(tw.length)out.push({k:'Twistiest road',
     v:Math.max(...tw.map(d=>d.twist)).toFixed(0)+'°/km ('+twistLabel(Math.max(...tw.map(d=>d.twist)))+')'});
-  if(sm.length)out.push({k:'Smoothest drive',v:Math.max(...sm.map(d=>d.smooth))+'/100'});
-  if(gg.length)out.push({k:'Hardest g',v:Math.max(...gg.map(d=>d.g)).toFixed(2)+' g'});
+  if(sm.length)out.push({k:'Smoothest drive',v:Math.max(...sm.map(smoothOf))+'/100'});
+  if(gg.length)out.push({k:'Hardest g',v:Math.max(...gg.map(gOf)).toFixed(2)+' g'});
   const cl=drives.filter(d=>d.gain);
   if(cl.length)out.push({k:'Biggest climb',v:Math.max(...cl.map(d=>d.gain))+' m'});
   return out;
@@ -1167,7 +1243,7 @@ const CHALLENGES=[
   {id:'new',    name:'Find 8 km of road you have never driven', xp:200, goal:8,unit:'km',
    f:w=>newRoadKm(w)},
   {id:'smooth', name:'Three drives scoring 85+ for smoothness', xp:150, goal:3,unit:'drives',
-   f:w=>w.filter(d=>d.smooth!=null&&d.smooth>=85).length},
+   f:w=>w.filter(d=>smoothOf(d)!=null&&smoothOf(d)>=85).length},
   {id:'twist',  name:'Drive something twisty (140°/km or more)', xp:180, goal:1,unit:'drives',
    f:w=>w.filter(d=>d.twist!=null&&d.twist>=140).length},
   {id:'days',   name:'Drive on five separate days', xp:130, goal:5,unit:'days',
@@ -1299,6 +1375,28 @@ async function shareDrive(id){
       toast('Card saved to downloads.');
     }
   },'image/png');
+}
+
+/* ---------- the friction circle ---------- */
+function ggSvg(d){
+  const s=ggSmooth(ggPoints(d));
+  if(s.length<12)return '';
+  let mx=0;for(const q of s){const m=Math.hypot(q[0],q[1]);if(m>mx)mx=m}
+  const lim=Math.max(.4,Math.ceil(mx*5)/5);
+  const S=200,C=S/2,R=C-16;
+  let rings='';
+  for(let k=1;k*.2<=lim+1e-9;k++)
+    rings+='<circle class="gg-ring" cx="'+C+'" cy="'+C+'" r="'+(k*.2/lim*R).toFixed(1)+'"/>';
+  rings+='<text class="gg-t" x="'+C+'" y="'+(C-R+10).toFixed(1)+'" text-anchor="middle">'+
+    lim.toFixed(1)+' g</text>';
+  const dots=s.map(q=>'<circle cx="'+(C+q[0]/lim*R).toFixed(1)+'" cy="'+
+    (C-q[1]/lim*R).toFixed(1)+'" r="1.8" fill="'+speedColor(q[2]||0)+'"/>').join('');
+  return '<div class="cap">How hard you drove \u00b7 '+s.length+' samples from gps</div>'+
+    '<svg class="gg-svg" viewBox="0 0 '+S+' '+S+'">'+
+    '<line class="gg-ax" x1="'+C+'" y1="8" x2="'+C+'" y2="'+(S-8)+'"/>'+
+    '<line class="gg-ax" x1="8" y1="'+C+'" x2="'+(S-8)+'" y2="'+C+'"/>'+
+    rings+dots+'</svg>'+
+    '<div class="gg-key">up accelerating \u00b7 down braking \u00b7 sideways cornering</div>';
 }
 
 /* ---------- route comparison ---------- */
@@ -1490,7 +1588,7 @@ function toCsv(){
   return head+drives.slice().sort((a,b)=>a.start-b.start).map(d=>[
     new Date(d.start).toISOString(),JSON.stringify(d.name),km(d.dist).toFixed(2),
     Math.round(d.dur),Math.round(d.dur-(d.idle||0)),Math.round(d.top*3.6),d.gain||0,
-    d.twist!=null?d.twist:'',d.smooth!=null?d.smooth:'',d.g!=null?d.g:'',
+    d.twist!=null?d.twist:'',smoothOf(d)!=null?smoothOf(d):'',gOf(d)!=null?gOf(d):'',
     (fuelOf(d)||'')&&fuelOf(d).toFixed(2),(costOf(d)||'')&&costOf(d).toFixed(2),
     d.wx?d.wx.t:'',d.wx?(WX[d.wx.code]||''):''
   ].join(',')).join('\n');
@@ -1566,7 +1664,7 @@ openDrive=function(id){curDrive=id;_openDrive(id);
   const d=drives.find(x=>x.id===id);
   if(d){
     $('shTwist').textContent=d.twist!=null?Math.round(d.twist)+'°':'–';
-    $('shSmooth').textContent=d.smooth!=null?d.smooth:'–';
+    $('shSmooth').textContent=smoothOf(d)!=null?smoothOf(d):'–';
     $('shNew').textContent=d.newCells?((d.newCells*CELL/1000).toFixed(1)+' km'):'0';
     $('shWx').textContent=d.wx?Math.round(d.wx.t)+'°':'–';
     const fr=firstTimeSegments(0,0,d.id);
@@ -1607,6 +1705,12 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
     if(d.newCells===undefined){d.newCells=0;dirty=true}
     if(d.accel===undefined){d.accel=accelOf(d);dirty=true}
     if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
+    // cornering and braking worked out from gps, for phones that report no
+    // motion sensor. Kept beside d.g and d.smooth, never written over them.
+    if(d.ggV!==1){const gg=ggOf(d);
+      d.gGps=gg?gg.g:null;
+      d.smoothGps=gg?smoothness(gg.hard,d.dur):null;
+      d.ggV=1;dirty=true}
   });
   if(idbOk||dirty){await saveV2(K_DRV,drives);await saveV2(K_CAR,cars);await saveV2(K_SET,settings)}
 
@@ -2624,11 +2728,11 @@ function buildCtx(p){
   const acc=arr=>{const v=arr.map(d=>(d.accel||{}).a100).filter(x=>x!=null);
     return v.length?Math.min(...v):null};
   c.accNow=acc(ds); c.accBefore=acc(before);
-  const sm=arr=>{const v=arr.map(d=>d.smooth).filter(x=>x!=null);
+  const sm=arr=>{const v=arr.map(smoothOf).filter(x=>x!=null);
     return v.length?v.reduce((a,b)=>a+b,0)/v.length:null};
   c.smoothNow=sm(ds); c.smoothPrev=sm(prev);
-  c.gNow=max(ds.filter(d=>d.g!=null),d=>d.g);
-  c.gBefore=max(before.filter(d=>d.g!=null),d=>d.g);
+  c.gNow=max(ds.filter(d=>gOf(d)!=null),gOf);
+  c.gBefore=max(before.filter(d=>gOf(d)!=null),gOf);
   // biggest single day
   const byDay=new Map();
   ds.forEach(d=>byDay.set(dayKey(d.start),(byDay.get(dayKey(d.start))||0)+d.dist));
@@ -3369,7 +3473,8 @@ function xpBreakdown(d){
   if(d.dist>=25000)out.push({k:'Long run',v:20,d:'over 25 km'});
   const h=new Date(d.start).getHours();
   if(h>=21||h<6)out.push({k:'After dark',v:10,d:null});
-  if(d.smooth!=null&&d.smooth>=90)out.push({k:'Smooth',v:15,d:d.smooth+'/100'});
+  if(smoothOf(d)!=null&&smoothOf(d)>=90)
+    out.push({k:'Smooth',v:15,d:smoothOf(d)+'/100'+(d.smooth==null?' from gps':'')});
   // ramps in from 80°/km instead of appearing all at once at 140
   if(d.twist!=null&&d.twist>=80)
     out.push({k:'Twisty road',v:Math.round((d.twist-80)/2.5),d:Math.round(d.twist)+'°/km'});
