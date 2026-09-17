@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v10';
+const BUILD='2026-09-17 · twist v3 · assets v11';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -2600,12 +2600,75 @@ function renderReview(){
         '</div><div class="s">'+c.s+'</div></div>').join('')
     : '<div class="empty">Not enough drives in this period yet.</div>';
 }
+const COMPASS=['N','NE','E','SE','S','SW','W','NW'];
+function compassOf(br){return COMPASS[Math.floor(((br+22.5)%360)/45)]}
+
+/* ---------- where to go next ----------
+   thinnestDirection() says which way the map is emptiest, which is true but
+   not actionable: an empty sector may be farmland, water, or simply nowhere
+   anyone would want to go. This names somewhere specific instead, out of
+   roads you have already driven and already scored, picked on how good you
+   found it and how long it has been since. It all comes from your own
+   drives, so it cannot invent a road that is not there. */
+function homePlace(){
+  const tally=new Map();
+  buildRoutes().forEach(r=>[r.from,r.to].forEach(q=>{
+    if(!q)return;
+    const k=q.lat.toFixed(3)+','+q.lng.toFixed(3);
+    const e=tally.get(k)||{p:q,n:0};
+    e.n+=r.runs.length;tally.set(k,e);
+  }));
+  let best=null;
+  tally.forEach(e=>{if(!best||e.n>best.n)best=e});
+  if(best)return best.p;
+  const f=drives[0]&&drives[0].pts&&drives[0].pts[0];
+  return f?{lat:f[0],lng:f[1]}:null;
+}
+function tripFuel(metres){
+  const c=cars.find(x=>x.id===settings.activeCar)||cars[0];
+  if(!c)return null;
+  const rate=measuredL100(c)||c.l100;
+  if(!rate)return null;
+  const l=km(metres)*rate/100;
+  const st=fuelStats(c);
+  const price=(st&&st.last&&st.last.pricePerL)||c.price;
+  return {l,cost:price?l*price:null};
+}
+function driveSuggestion(){
+  const home=homePlace();
+  if(!home)return '';
+  const segs=roadCache||(roadCache=segmentDrives());
+  if(segs.length<3)return '';
+  const now=Date.now(), MON=1000*86400*30.4;
+  const cand=segs.map(x=>{
+    const away=hav(home.lat,home.lng,x.lat,x.lng);
+    return {x,away,rank:x.score+Math.min((now-x.when)/MON,12)*2.5};
+  }).filter(c=>c.away>3000&&c.away<70000);
+  if(!cand.length)return '';
+  cand.sort((a,b)=>b.rank-a.rank);
+  const c=cand[0], x=c.x;
+  const trip=c.away*2+x.dist;
+  const avg=Math.max(40,Math.min(90,x.avg||60));
+  const f=tripFuel(trip);
+  const when=new Date(x.when).toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  return '<b>Head '+compassOf(bearing(home.lat,home.lng,x.lat,x.lng))+'.</b> A '+
+    twistLabel(x.twist)+' stretch about '+(c.away/1000).toFixed(0)+
+    ' km out that you scored <b>'+x.score+'/100</b>'+
+    (x.runs>1?' over '+x.runs+' runs':'')+', best run '+when+
+    '. There and back is roughly '+(trip/1000).toFixed(0)+' km and '+
+    Math.round(trip/1000/avg*60)+' min'+
+    (f&&f.cost!=null?', about \u20ac'+f.cost.toFixed(2)+' of fuel':
+     f?', about '+f.l.toFixed(1)+' L of fuel':'')+'.';
+}
 function renderNudge(){
   const n=thinnestDirection();
-  $('nudge').innerHTML=n
+  const dir=n
     ? 'You have barely been <b>'+n.dir+'</b> of home — it is your emptiest direction, against '+
       n.bestCells+' cells covered to the '+n.best+'. Worth a Sunday.'
     : 'Drive a bit more and this will tell you which direction from home you have neglected.';
+  let sug='';
+  try{sug=driveSuggestion()}catch(e){}
+  $('nudge').innerHTML=sug?sug+'<br><br>'+dir:dir;
 }
 
 /* ---------- handlers: replay, diary, review ---------- */
