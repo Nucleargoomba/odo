@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v7';
+const BUILD='2026-09-17 · twist v3 · assets v8';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -303,16 +303,19 @@ function speedColor(kmh){
   }
   return '#D2402A';
 }
-function glyph(pts){
-  if(!pts||pts.length<2)return '<svg class="glyph" viewBox="0 0 62 40"></svg>';
-  const step=Math.max(1,Math.floor(pts.length/60));
+function glyph(pts,o){
+  const g=Object.assign({w:62,h:40,pad:8,n:60,dot:2.6,cls:'glyph'},o||{});
+  const W=g.w,H=g.h;
+  const head='<svg class="'+g.cls+'" viewBox="0 0 '+W+' '+H+'">';
+  if(!pts||pts.length<2)return head+'</svg>';
+  const step=Math.max(1,Math.floor(pts.length/g.n));
   const p=pts.filter((_,i)=>i%step===0||i===pts.length-1);
   const la=p.map(x=>x[0]),lo=p.map(x=>x[1]);
   const y0=Math.min(...la),y1=Math.max(...la),x0=Math.min(...lo),x1=Math.max(...lo);
   const mid=(y0+y1)/2*Math.PI/180;
   const w=Math.max((x1-x0)*Math.cos(mid),1e-6),h=Math.max(y1-y0,1e-6);
-  const s=Math.min(54/w,32/h), ox=(62-w*s)/2, oy=(40-h*s)/2;
-  const xy=q=>[ox+(q[1]-x0)*Math.cos(mid)*s, 40-oy-(q[0]-y0)*s];
+  const s=Math.min((W-g.pad)/w,(H-g.pad)/h), ox=(W-w*s)/2, oy=(H-h*s)/2;
+  const xy=q=>[ox+(q[1]-x0)*Math.cos(mid)*s, H-oy-(q[0]-y0)*s];
   let segs='';
   for(let i=1;i<p.length;i++){
     const a=xy(p[i-1]),b=xy(p[i]);
@@ -320,8 +323,8 @@ function glyph(pts){
           '" stroke="'+speedColor(p[i][3]||0)+'"/>';
   }
   const e=xy(p[p.length-1]);
-  return '<svg class="glyph" viewBox="0 0 62 40">'+segs+
-    '<circle cx="'+e[0].toFixed(1)+'" cy="'+e[1].toFixed(1)+'" r="2.6"/></svg>';
+  return head+segs+
+    '<circle cx="'+e[0].toFixed(1)+'" cy="'+e[1].toFixed(1)+'" r="'+g.dot+'"/></svg>';
 }
 
 /* ============ perspective ============ */
@@ -454,10 +457,25 @@ function render(){
 
 function renderDrives(){
   const list=$('list');
+  const view=settings.driveView==='shapes'?'shapes':'list';
+  document.querySelectorAll('#driveView button').forEach(b=>
+    b.classList.toggle('on',b.dataset.v===view));
   if(!drives.length){
     list.innerHTML='<div class="empty">No drives yet.<br>Hit start when you pull out.</div>';return;
   }
-  list.innerHTML=drives.slice().sort((a,b)=>b.start-a.start).map(d=>{
+  const sorted=drives.slice().sort((a,b)=>b.start-a.start);
+  if(view==='shapes'){
+    list.className='shapes';
+    list.innerHTML=sorted.map(d=>
+      '<button class="shape" data-id="'+d.id+'">'+
+      glyph(d.pts,{w:120,h:86,pad:16,n:90,dot:3,cls:'shape-g'})+
+      '<div class="shape-n">'+km(d.dist).toFixed(1)+'<s>km</s></div>'+
+      '<div class="shape-d">'+fmtDate(d.start)+'</div></button>').join('');
+    list.querySelectorAll('.shape').forEach(b=>b.onclick=()=>openDrive(b.dataset.id));
+    return;
+  }
+  list.className='';
+  list.innerHTML=sorted.map(d=>{
     const c=carOf(d);
     return '<button class="drive" data-id="'+d.id+'">'+glyph(d.pts)+
       '<div class="d-main"><div class="d-title">'+esc(d.name)+
@@ -468,6 +486,9 @@ function renderDrives(){
   }).join('');
   list.querySelectorAll('.drive').forEach(b=>b.onclick=()=>openDrive(b.dataset.id));
 }
+document.querySelectorAll('#driveView button').forEach(b=>{
+  b.onclick=async()=>{settings.driveView=b.dataset.v;await saveV2(K_SET,settings);renderDrives()};
+});
 
 function renderRoutes(){
   const rs=buildRoutes(), box=$('routes');
