@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · twist v3 · assets v13';
+const BUILD='2026-09-17 · twist v3 · assets v14';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -311,6 +311,32 @@ function buildRoutes(){
   });
   return out.sort((a,b)=>b.runs.length-a.runs.length);
 }
+/* ---------- route bests ----------
+   A best time was already toasted on the way out of the car, but nothing kept
+   it: no xp, no marker, no history, and the toast was lost entirely whenever
+   the same drive also levelled you up. This replays each route in the order
+   you drove it and flags the runs that were the quickest at the time, the way
+   firstTimeSegments() does for new road. Replaying rather than comparing to
+   today's best means a run you have since beaten keeps the credit it earned,
+   and the result is the same however many times it runs. */
+function markPbs(){
+  const won=new Set();
+  buildRoutes().forEach(r=>{
+    let best=Infinity, seen=0;
+    r.runs.slice().sort((a,b)=>a.start-b.start).forEach(d=>{
+      if(seen>=2&&d.dur<best)won.add(d.id);   // two earlier runs to beat
+      if(d.dur<best)best=d.dur;
+      seen++;
+    });
+  });
+  let changed=false;
+  drives.forEach(d=>{
+    const v=won.has(d.id);
+    if(!!d.pb!==v){d.pb=v;changed=true}
+  });
+  return changed;
+}
+
 function bestWindow(runs){
   const buck=new Map();
   runs.forEach(d=>{
@@ -480,7 +506,7 @@ const BADGES=[
   {ic:'🧭',n:'20 new cells',f:()=>coverage().unique>=200},
   {ic:'🔁',n:'A route ×10',f:()=>buildRoutes().some(r=>r.runs.length>=10)},
   {ic:'🪶',n:'Smooth 95',f:()=>drives.some(d=>smoothOf(d)!=null&&smoothOf(d)>=95)},
-  {ic:'⛰',n:'1 000 m climbed',f:()=>drives.reduce((a,d)=>a+(d.gain||0),0)>=1000}
+  {ic:'⛰',n:'1 000 m climbed',f:()=>drives.reduce((a,d)=>a+(gainOf(d)||0),0)>=1000}
 ];
 
 /* ============ render ============ */
@@ -569,6 +595,7 @@ function renderDrives(){
     const c=carOf(d);
     return '<button class="drive" data-id="'+d.id+'">'+glyph(d.pts)+
       '<div class="d-main"><div class="d-title">'+esc(d.name)+
+      (d.pb?'<span class="tag">pb</span>':'')+
       (c?'<span class="tag">'+esc(c.name.slice(0,10))+'</span>':'')+'</div>'+
       '<div class="d-sub">'+fmtDate(d.start)+' · '+hms(d.dur)+
       (d.twist!=null?' · '+twistLabel(d.twist):'')+(d.wx?' · '+Math.round(d.wx.t)+'°':'')+'</div></div>'+
@@ -929,14 +956,22 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;await saveV2(K_DRV,drives);
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;
+  markPbs();
+  await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
   render();
   const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
   const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
   floatXp(driveXp(d));
   if(after>before){celebrate(after,driveXp(d),d);return}
-  if(rt&&d.dur<=rt.best) toast('Best time yet on '+rt.name+' — '+mins(d.dur));
+  if(d.pb&&rt){
+    const others=rt.runs.filter(x=>x.id!==d.id).map(x=>x.dur);
+    const by=others.length?Math.round(Math.min(...others)-d.dur):0;
+    toast('Best yet on '+rt.name+' \u2014 '+mins(d.dur)+
+      (by>0?', '+by+' s under your previous best':''));
+  }
+  else if(rt&&d.dur<=rt.best) toast('Best time yet on '+rt.name+' \u2014 '+mins(d.dur));
   else if(d.newCells>=15) toast((d.newCells*CELL/1000).toFixed(1)+' km of new road · +'+driveXp(d)+' xp');
   else toast(km(d.dist).toFixed(1)+' km · +'+driveXp(d)+' xp');
 }
@@ -1008,7 +1043,7 @@ function elevSvg(d){
   const pts=alt.map((v,i)=>[i/(alt.length-1)*W,H-(v-lo)/(hi-lo)*(H-8)-4]);
   const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join('');
   return '<div class="cap">Elevation · '+Math.round(lo)+'–'+Math.round(hi)+
-    ' m · '+(d.gain||0)+' m climbed</div>'+
+    ' m · '+(gainOf(d)||0)+' m climbed</div>'+
     '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
     '<path class="f" d="'+line+'L'+W+' '+H+'L0 '+H+'Z"/><path class="l" d="'+line+'"/></svg>';
 }
@@ -1237,8 +1272,8 @@ function records(){
     v:Math.max(...tw.map(d=>d.twist)).toFixed(0)+'°/km ('+twistLabel(Math.max(...tw.map(d=>d.twist)))+')'});
   if(sm.length)out.push({k:'Smoothest drive',v:Math.max(...sm.map(smoothOf))+'/100'});
   if(gg.length)out.push({k:'Hardest g',v:Math.max(...gg.map(gOf)).toFixed(2)+' g'});
-  const cl=drives.filter(d=>d.gain);
-  if(cl.length)out.push({k:'Biggest climb',v:Math.max(...cl.map(d=>d.gain))+' m'});
+  const cl=drives.map(gainOf).filter(v=>v);
+  if(cl.length)out.push({k:'Biggest climb',v:Math.max(...cl)+' m'});
   return out;
 }
 
@@ -1258,8 +1293,8 @@ const CHALLENGES=[
    f:w=>km(w.reduce((a,d)=>a+d.dist,0))},
   {id:'new',    name:'Find 8 km of road you have never driven', xp:200, goal:8,unit:'km',
    f:w=>newRoadKm(w)},
-  {id:'smooth', name:'Three drives scoring 85+ for smoothness', xp:150, goal:3,unit:'drives',
-   f:w=>w.filter(d=>d.smooth!=null&&d.smooth>=85).length},
+  {id:'smooth', name:'Two drives scoring 85+ for smoothness', xp:150, goal:2,unit:'drives',
+   f:w=>w.filter(d=>smoothOf(d)!=null&&smoothOf(d)>=85).length},
   {id:'twist',  name:'Drive something twisty (140°/km or more)', xp:180, goal:1,unit:'drives',
    f:w=>w.filter(d=>d.twist!=null&&d.twist>=140).length},
   {id:'days',   name:'Drive on five separate days', xp:130, goal:5,unit:'days',
@@ -1269,7 +1304,15 @@ const CHALLENGES=[
   {id:'dawn',   name:'A drive before 07:00', xp:110, goal:1,unit:'drives',
    f:w=>w.filter(d=>new Date(d.start).getHours()<7).length},
   {id:'climb',  name:'Climb 250 m in total', xp:140, goal:250,unit:'m',
-   f:w=>w.reduce((a,d)=>a+(d.gain||0),0)}
+   f:w=>w.reduce((a,d)=>a+(gainOf(d)||0),0)},
+  {id:'gforce', name:'A drive touching 0.4 g', xp:150, goal:1,unit:'drives',
+   f:w=>w.filter(d=>gOf(d)!=null&&gOf(d)>=.4).length},
+  {id:'pb',     name:'Set a best time on a route you repeat', xp:170, goal:1,unit:'drives',
+   f:w=>w.filter(d=>d.pb).length},
+  {id:'night',  name:'A drive after 22:00', xp:120, goal:1,unit:'drives',
+   f:w=>w.filter(d=>new Date(d.start).getHours()>=22).length},
+  {id:'wet',    name:'Drive through the rain', xp:130, goal:1,unit:'drives',
+   f:w=>w.filter(d=>d.wx&&isWet(d.wx.code)).length}
 ];
 function newRoadKm(week){
   const before=new Set(), ws=weekStart();
@@ -1280,10 +1323,19 @@ function newRoadKm(week){
   return fresh.size*CELL/1000;
 }
 function thisWeek(){const ws=weekStart();return drives.filter(d=>d.start>=ws)}
+/* A challenge you cannot win is worse than none. Climb and twist depend on
+   terrain, so they only join the pool once your own drives show the terrain
+   is there to find. */
+function challengePool(){
+  const hilly=drives.some(d=>(gainOf(d)||0)>=60);
+  const bendy=drives.some(d=>d.twist!=null&&d.twist>=120);
+  return CHALLENGES.filter(c=>
+    (c.id!=='climb'||hilly)&&(c.id!=='twist'||bendy));
+}
 function activeChallenges(){
   const wk=weekId(Date.now());
   let seed=0;for(const c of wk)seed=(seed*31+c.charCodeAt(0))>>>0;
-  const pool=CHALLENGES.slice();
+  const pool=challengePool();
   const out=[];
   for(let i=0;i<3&&pool.length;i++){
     seed=(seed*1103515245+12345)>>>0;
@@ -1662,7 +1714,7 @@ function toCsv(){
     'smoothness,peak_g,litres,cost_eur,temp_c,weather\n';
   return head+drives.slice().sort((a,b)=>a.start-b.start).map(d=>[
     new Date(d.start).toISOString(),JSON.stringify(d.name),km(d.dist).toFixed(2),
-    Math.round(d.dur),Math.round(d.dur-(d.idle||0)),Math.round(d.top*3.6),d.gain||0,
+    Math.round(d.dur),Math.round(d.dur-(d.idle||0)),Math.round(d.top*3.6),gainOf(d)||0,
     d.twist!=null?d.twist:'',smoothOf(d)!=null?smoothOf(d):'',gOf(d)!=null?gOf(d):'',
     (fuelOf(d)||'')&&fuelOf(d).toFixed(2),(costOf(d)||'')&&costOf(d).toFixed(2),
     d.wx?d.wx.t:'',d.wx?(WX[d.wx.code]||''):''
@@ -1787,6 +1839,8 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
       d.smoothGps=gg?gg.smooth:null;
       d.ggV=3;dirty=true}
   });
+  if(settings.pbV!==1){if(markPbs())dirty=true;settings.pbV=1}
+  else if(markPbs())dirty=true;
   if(idbOk||dirty){await saveV2(K_DRV,drives);await saveV2(K_CAR,cars);await saveV2(K_SET,settings)}
 
   render();
@@ -3639,6 +3693,7 @@ function xpBreakdown(d){
   if(sh.gaps)out.push({k:'Filled a gap',v:sh.gaps*6,
     d:spell(sh.gaps)+' enclosed cell'+(sh.gaps>1?'s':'')});
   if(sh.rev)out.push({k:'Other direction',v:30,d:'first run the other way'});
+  if(d.pb)out.push({k:'Route best',v:40,d:'quickest run on this route at the time'});
   return out;
 }
 function renderXpBreak(id){
