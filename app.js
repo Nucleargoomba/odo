@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · fog town names · assets v20';
+const BUILD='2026-09-18 · regions · assets v21';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1306,7 +1306,7 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
@@ -1357,7 +1357,7 @@ function openDrive(id){
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
-    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;roadCache=null;await saveV2(K_DRV,drives);
+    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;roadCache=null;await saveV2(K_DRV,drives);
     $('sheet').classList.remove('on');render();toast('Drive deleted.');
   };
   setTimeout(()=>{
@@ -1513,6 +1513,105 @@ function showCarPick(id){
   });
 }
 
+/* ============ regions ============
+   The coverage grid grouped into 10 km squares, so exploring has somewhere to
+   finish rather than being one number that only ever goes up.
+
+   Progress is measured in kilometres of distinct road driven inside a square,
+   not as a percentage of it. A percentage needs to know how much road the
+   square holds, which needs the road network, which the app does not have and
+   cannot get offline — and most of a 10 km square is fields, so any honest
+   denominator would put every region at two or three percent forever. The
+   README already refuses to fake this for coverage and it is refused here.
+
+   The tiers are therefore absolute: 2 km of road in a square is a look
+   around, 10 km is knowing it, 30 km is having driven most of what there is
+   to drive in a rural square. */
+const REGION=10000;                    // metres
+const REGION_TIERS=[[2,'Scouted'],[10,'Known'],[30,'Owned'],[60,'Mastered']];
+let regionCache=null;
+function regionKey(lat,lng){
+  const dLat=REGION/111320, dLng=REGION/(111320*Math.cos(lat*Math.PI/180));
+  return Math.round(lat/dLat)+':'+Math.round(lng/dLng);
+}
+function regionTier(kmDriven){
+  let t=null;
+  REGION_TIERS.forEach(x=>{if(kmDriven>=x[0])t=x});
+  const next=REGION_TIERS.find(x=>kmDriven<x[0])||null;
+  return {tier:t,next,to:next?next[0]-kmDriven:0};
+}
+/* Built from the coverage cells rather than from the points, so a region
+   counts the same distinct road the heat map does and a stretch driven two
+   hundred times still counts once. */
+function regions(){
+  if(regionCache)return regionCache;
+  const cells=coverage().cells, byReg=new Map();
+  cells.forEach((n,k)=>{
+    const parts=k.split(':');
+    /* rebuild the cell's position from its key: the grid is regular, so the
+       row index alone gives the latitude, and latitude gives the column width */
+    const dLat=CELL/111320;
+    const lat=Number(parts[0])*dLat;
+    const dLng=CELL/(111320*Math.cos(lat*Math.PI/180));
+    const lng=Number(parts[1])*dLng;
+    const rk=regionKey(lat,lng);
+    let r=byReg.get(rk);
+    if(!r){r={key:rk,cells:0,lat:0,lng:0,visits:0};byReg.set(rk,r)}
+    r.cells++;r.visits+=n;r.lat+=lat;r.lng+=lng;
+  });
+  const out=[];
+  byReg.forEach(r=>{
+    r.lat/=r.cells;r.lng/=r.cells;
+    r.km=r.cells*CELL/1000;
+    Object.assign(r,regionTier(r.km));
+    out.push(r);
+  });
+  return regionCache=out.sort((a,b)=>b.km-a.km);
+}
+/* Named from the town labels already looked up for the fog map, so no region
+   costs a request of its own. A region with no named town nearby keeps its
+   grid reference, which is at least stable. */
+function regionName(r){
+  let best=null,bd=REGION;
+  fogClusters().forEach(c=>{
+    const nm=fogName(c);
+    if(!nm)return;
+    const d=hav(r.lat,r.lng,c.lat,c.lng);
+    if(d<bd){bd=d;best=nm}
+  });
+  return best||('Square '+r.key);
+}
+/* A standing pot, the way completed challenges are: reaching a tier is worth
+   holding, and it cannot be lost. */
+function regionXp(){
+  return regions().reduce((a,r)=>{
+    if(!r.tier)return a;
+    const i=REGION_TIERS.findIndex(x=>x[1]===r.tier[1]);
+    return a+(i+1)*40;
+  },0);
+}
+function regionsHtml(){
+  const rs=regions();
+  if(!rs.length)return '<div class="empty" style="border:0">'+
+    'Drive somewhere and it will start filling in.</div>';
+  const done=rs.filter(r=>r.tier).length;
+  const rows=rs.slice(0,12).map(r=>{
+    const pct=r.next?Math.round(r.km/r.next[0]*100):100;
+    const tier=r.tier?r.tier[1]:'Passed through';
+    return '<div class="rg-row"><div class="rg-top">'+
+      '<span class="n">'+esc(regionName(r))+'</span>'+
+      '<span class="t'+(r.tier?' got':'')+'">'+tier+'</span></div>'+
+      '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,pct))+'%"></i></div>'+
+      '<div class="rg-sub">'+r.km.toFixed(1)+' km of road'+
+      (r.next?' · '+(r.to).toFixed(1)+' km to '+r.next[1]:' · nothing left to take')+
+      '</div></div>';
+  }).join('');
+  return '<div class="cap">'+rs.length+' squares touched · '+done+
+    ' past the first tier · 10 km to a side</div>'+
+    '<div class="rg-list">'+rows+'</div>'+
+    (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'');
+}
+
 /* ---------- the towns behind the fog ----------
    With the map taken away the coverage floats in nothing, so the places you
    drive through are labelled back in. The labels come from your own driving
@@ -1651,7 +1750,7 @@ $('fileIn').onchange=e=>{
         await saveV2(K_CAR,cars);
       }
       if(raw.settings){settings=Object.assign(settings,raw.settings);await saveV2(K_SET,settings)}
-      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;await saveV2(K_DRV,drives);render();
+      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;await saveV2(K_DRV,drives);render();
       toast(add.length+' drives restored.');
     }catch(err){toast("That file isn't an Odo backup.")}
     e.target.value='';
@@ -2273,7 +2372,7 @@ $('gpxIn').onchange=async e=>{
       inc.forEach(d=>{if(!have.has(d.id)&&d.dist>150){drives.push(d);added++}});
     }catch(err){}
   }
-  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;await saveV2(K_DRV,drives);render();
+  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;await saveV2(K_DRV,drives);render();
   toast(added?added+' tracks imported.':'Nothing usable in that file.');
   e.target.value='';
 };
@@ -2717,6 +2816,7 @@ function renderStats(){
   $('statWeek').innerHTML=chartWeekHour(ds);
   $('statRose').innerHTML=chartCompass(ds);
   $('statBorders').innerHTML=bordersHtml();
+  $('statRegions').innerHTML=regionsHtml();
   $('statMonth').innerHTML=chartMonthly(ds);
   $('statRec').innerHTML=chartRecords();
   $('statRoute').innerHTML=chartRouteTrend();
@@ -4419,4 +4519,4 @@ function economyXp(){
   });
   return xp;
 }
-function bonusXp(){return varietyXp()+serviceXp()+economyXp()}
+function bonusXp(){return varietyXp()+serviceXp()+economyXp()+regionXp()}

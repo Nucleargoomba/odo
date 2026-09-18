@@ -662,3 +662,14 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
   letter-spacing:.16em;text-transform:uppercase;color:rgba(239,233,217,.42);
   text-shadow:0 0 6px #070906,0 0 3px #070906}
 .fog-label.big span{font-size:12.5px;letter-spacing:.2em;color:rgba(239,233,217,.72)}
+
+/* ---------- regions ---------- */
+.rg-list{display:flex;flex-direction:column;gap:11px;margin-top:8px}
+.rg-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.rg-top .n{font-size:13.5px}
+.rg-top .t{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--slate);white-space:nowrap}
+.rg-top .t.got{color:var(--amber)}
+.rg-bar{height:5px;background:#0A0906;border-radius:3px;overflow:hidden;margin:5px 0 4px}
+.rg-bar i{display:block;height:100%;background:var(--amber);border-radius:3px;opacity:.75}
+.rg-sub{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate)}

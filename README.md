@@ -149,7 +149,8 @@ clean run (sensor only), and pushing one of your eight borders outward.
 
 Standing pots: day streak, completed weekly challenges, three or more distinct
 routes in a week, each logged service (more if done before it fell due), and
-any tank that beat your own measured consumption.
+any tank that beat your own measured consumption,
+and each region tier reached.
 
 Multiplying the per-drive total: the age of the car that drove it.
 
@@ -284,3 +285,25 @@ else. Two clusters either side of a town both answer with the town, so the
 name is shown once, at whichever you have been near most; a place the service
 cannot name is recorded as unknown, stays off the map, and is not asked again.
 Labels are sized by how often you have been there, so home reads loudest.
+
+## Ground you hold
+
+The coverage grid grouped into 10 km squares, so exploring has somewhere to
+finish rather than being one number that only ever goes up. Four tiers per
+square: Scouted at 2 km of road, Known at 10, Owned at 30, Mastered at 60.
+Each tier reached is a standing pot of xp and cannot be lost.
+
+Progress is kilometres of distinct road driven inside a square, not a
+percentage of it. A percentage needs to know how much road the square holds,
+which needs the road network, which the app does not have and cannot get
+offline — and most of a 10 km square is fields, so any honest denominator
+would pin every region at two or three percent forever. Coverage already
+refuses to fake this and so does this.
+
+Squares are built from the coverage cells rather than the raw points, so a
+region counts the same distinct road the heat map does and a commute driven
+two hundred times counts once. They are named from the town labels already
+looked up for the fog map, so no region costs a lookup of its own; one with no
+named town nearby keeps its grid reference.
+
+On 66 drives that is 33 squares touched, the best two past 60 km of road.
