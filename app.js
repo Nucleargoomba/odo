@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · forms, not prompts · assets v35';
+const BUILD='2026-09-18 · clean run pays · assets v36';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -533,16 +533,26 @@ function movedBy(clk,t){
   const span=ts[hi]-ts[lo];
   return span>0?cum[lo]+(cum[hi]-cum[lo])*((t-ts[lo])/span):cum[lo];
 }
-/* gps stand-in for a drive recorded before jolt times were kept. The sensor
-   arms at 3.5 m/s2 and re-arms below 2.2; this mirrors that ratio so the two
-   paths at least count the same kind of event. */
+/* The gps path needs its own trigger. GG_BUSY is 0.30 g, but that number was
+   fitted as the top of the smoothness scale — a 95th percentile that reads as
+   firm input most of the time — and used as an instantaneous trigger on the
+   smoothed series it fires on almost nothing: across 65 drives it left 38% of
+   them with no jolt at all, one unbroken stretch, and a perfect multiplier.
+
+   0.19 g gives about one firm input every two minutes, which on the same 65
+   drives spreads the multiplier 6 at x1.0, 24 below x1.5, 33 below x2.0 and 2
+   at the cap. Rare but reachable, which is what a cap is for.
+
+   The sensor arms at 3.5 m/s2 and re-arms below 2.2; the same 0.63 ratio is
+   kept here so both paths count the same shape of event. */
+const GPS_JOLT=.19;
 function gpsJolts(d){
   const s=ggSmooth(ggPoints(d),GG_JWIN), out=[];
   let armed=false;
   for(const q of s){
     const m=Math.hypot(q[0],q[1]);
-    if(m>GG_BUSY){if(!armed){out.push(q[3]);armed=true}}
-    else if(m<GG_BUSY*0.63)armed=false;
+    if(m>GPS_JOLT){if(!armed){out.push(q[3]);armed=true}}
+    else if(m<GPS_JOLT*0.63)armed=false;
   }
   return out;
 }
@@ -4932,12 +4942,14 @@ function xpBreakdown(d){
   if(sh.gaps)out.push({k:'Filled a gap',v:sh.gaps*6,
     d:spell(sh.gaps)+' enclosed cell'+(sh.gaps>1?'s':'')});
   if(sh.rev)out.push({k:'Other direction',v:30,d:'first run the other way'});
-  /* a gps-derived clean run is shown in the sheet but never paid for */
-  if(Array.isArray(d.joltT)){
-    const cb=comboOf(d);
-    if(cb&&cb.mult>1)out.push({k:'Clean run',v:comboXp(cb),
-      d:mins(cb.secs)+' unbroken · ×'+cb.mult.toFixed(1)});
-  }
+  /* Paid whether the jolts came from the sensor or from gps. Unlike a raw
+     smoothness score, which had nothing to check it against, this rests on a
+     trigger calibrated against the recorded drives — and on a phone whose
+     accelerometer never fires, gps is the only account of the drive there is. */
+  const cb=comboOf(d);
+  if(cb&&cb.mult>1)out.push({k:'Clean run',v:comboXp(cb),
+    d:mins(cb.secs)+' unbroken · ×'+cb.mult.toFixed(1)+
+      (cb.sensor?'':' · gps')});
   const bp=borderPushes().get(d.id);
   if(bp)out.push({k:'Pushed the border',v:Math.min(60,20+Math.round(bp.by/1000)*4),
     d:dirWord(bp.dir)+' by '+(bp.by/1000).toFixed(1)+' km'});

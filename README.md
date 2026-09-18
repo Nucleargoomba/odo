@@ -207,7 +207,7 @@ Per drive: distance, a flat logging bonus, long run, after dark, smoothness,
 twistiness (ramping in from 80°/km), new road, climbing, endurance over two
 hours, rain, snow, fog, driving through sunrise or sunset, filling an enclosed
 gap in your coverage, the first run down a road in the opposite direction, a
-clean run (sensor only), and pushing one of your eight borders outward.
+clean run, and pushing one of your eight borders outward.
 
 Standing pots: day streak, completed weekly challenges, three or more distinct
 routes in a week, each logged service (more if done before it fell due), and
@@ -268,9 +268,20 @@ the driving, not the waiting. Otherwise a level crossing would out-score any
 real piece of road.
 
 The sensor only ever stored a jolt *count*, so drives recorded before this
-build have no timings to work from. They fall back to a gps estimate, which is
-shown with a `gps` marker but never paid xp — the same footing smoothness sits
-on, and for the same reason: there is nothing to calibrate it against.
+build have no timings to work from, and a phone whose accelerometer never fires
+has none at all. Those fall back to a gps estimate, marked `gps`, and it is
+paid for.
+
+That is a departure from smoothness, which is shown and not paid, and the
+difference is that this one has something to calibrate against. A clean run is
+the time between firm inputs, and the trigger was set from the recorded drives
+rather than borrowed: 0.30 g — the anchor at the top of the smoothness scale —
+used as an instantaneous trigger fired on almost nothing, leaving 38% of drives
+with no jolt at all, one unbroken stretch and a perfect multiplier. At 0.19 g
+there is about one firm input every two minutes, and across 65 drives the
+multiplier lands 6 at ×1.0, 24 below ×1.5, 33 below ×2.0 and 2 at the cap.
+It pays a median of 30 xp, around 7% of what the same drive earns for its
+distance.
 
 ## Route medals
 
