@@ -693,14 +693,14 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
   margin-top:4px;word-break:break-word}
 button:disabled{opacity:.5;cursor:default}
 
-/* ---------- the level plate ---------- */
-.lvl-badge{display:flex;justify-content:center;margin:2px 0 15px}
-.lu-badge{display:flex;justify-content:center;margin-bottom:8px}
-.lb{display:block;width:100%;max-width:320px;height:auto}
-.lb .pl-n{font-family:'Saira Condensed',sans-serif;font-weight:700;
+/* ---------- the level gauge ---------- */
+.lvl-badge{display:flex;justify-content:center;margin:4px 0 14px}
+.lu-badge{display:flex;justify-content:center;margin-bottom:4px}
+.lb{display:block;height:auto}
+.lvl-badge .lb{width:100%;max-width:178px}
+.lu-badge .lb{width:100%;max-width:250px}
+.lb .gg-lvl{font-family:'Saira Condensed',sans-serif;font-weight:700;
   letter-spacing:.02em}
-.lb .pl-t{font-family:'IBM Plex Mono',monospace;fill:var(--slate);
-  letter-spacing:.18em}
-.lb .pl-rank{fill:var(--chalk);letter-spacing:.14em}
-.lb .pl-mk{letter-spacing:.14em}
-.lu-badge .lb{filter:drop-shadow(0 0 16px rgba(0,0,0,.6))}
+.lb .gg-rank,.lb .gg-mk,.lb .gg-dial{font-family:'IBM Plex Mono',monospace;
+  letter-spacing:.16em}
+.lb .gg-dial{letter-spacing:0}

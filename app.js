@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · level plate · assets v32';
+const BUILD='2026-09-18 · level gauge · assets v33';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -865,7 +865,7 @@ function render(){
   $('xpNext').textContent=(nxt-totXp).toLocaleString()+' xp to level '+(lvl+1);
   $('xpFill').style.width=Math.max(2,Math.min(100,(totXp-base)/(nxt-base)*100))+'%';
   const lb=$('lvlBadge');
-  if(lb)lb.innerHTML=levelBadge(lvl,300);
+  if(lb)lb.innerHTML=levelBadge(lvl,178);
   const pips=$('rankPips');
   if(pips)pips.innerHTML=Array.from({length:ri.tiers},(_,i)=>
     '<i class="'+(i<ri.tier?'on':'')+'"></i>').join('')+
@@ -4645,85 +4645,90 @@ const RANKS2=[
   {lvl:60,name:'Cartographer', col:'#9B5CD6'},
   {lvl:80,name:'Legend',       col:'#F2ECDC'}
 ];
-/* ============ the level plate ============
-   A manufacturer's plate, the kind riveted to a door pillar: the level
-   stamped into metal rather than printed as a number. It is generated from
-   the level, so it changes every time one is gained and never runs out:
+/* ============ the level gauge ============
+   A level was a number, and a number is the same shape at 3 as at 300. It is
+   a rev counter now, read the way a rev counter is read: the needle sits at
+   how far through the rank you are, and the redline is where the rank ends.
+   So the gauge answers "how close am I" at a glance, which a number never did.
 
-     every level      one more punch mark, up to four
-     every 5 levels   the marks become a bar, up to four bars
-     every 25 levels  the mark of the plate advances — MK I, MK II, MK III
+   The dial itself climbs. Every 25 levels it gains a number on the face, from
+   8 up to 14, and then the face is remade and the mark advances — MK I, MK II,
+   MK III. Roman numerals do not run out, so there is no last gauge: the dial
+   keeps being rebuilt for a bigger engine.
 
-   Four bars and four punches fill a band of twenty-five exactly, so a band
-   reads at a glance. The mark is a Roman numeral and Roman numerals do not
-   run out, which is what keeps this going for ever: there is no last plate.
-
-   The metal ages with the mark. Each one adds a line engraved inside the
-   edge, up to three, and deepens the patina, so an old plate reads as an old
-   plate across the room and a new one reads as freshly stamped. */
-const BADGE_BAND=25;
+   Every level moves the needle, every 25 changes the face, and every rank
+   changes the colour. Nothing about it can settle. */
+const BADGE_BAND=25, DIAL_MIN=8, DIAL_SPAN=7;
+let badgeSeq=0;
 function levelMarks(lvl){
   const n=Math.max(1,Math.floor(lvl))-1;
-  const era=Math.floor(n/BADGE_BAND);            // 0,1,2...
-  const within=n%BADGE_BAND;                     // 0..24
+  const era=Math.floor(n/BADGE_BAND);
+  const within=n%BADGE_BAND;
   return {era,mk:era+1,bars:Math.floor(within/5),pips:within%5};
 }
+function polarAt(cx,cy,r,deg){
+  const a=(deg-90)*Math.PI/180;
+  return [cx+r*Math.cos(a),cy+r*Math.sin(a)];
+}
+function dialArc(cx,cy,r,a0,a1){
+  const p=polarAt(cx,cy,r,a0), q=polarAt(cx,cy,r,a1);
+  return 'M'+p[0].toFixed(2)+' '+p[1].toFixed(2)+'A'+r+' '+r+' 0 '+
+    ((a1-a0)>180?1:0)+' 1 '+q[0].toFixed(2)+' '+q[1].toFixed(2);
+}
 function levelBadge(lvl,width){
-  const m=levelMarks(lvl), ri=rankInfo(lvl), col=ri.col;
-  const W=width||260, H=Math.round(W*0.54);
   const n=Math.max(1,Math.floor(lvl));
-  const id='pl'+n+'x'+Math.round(W);
-  const age=Math.min(1,m.era/8);                 // patina, settling by MK IX
-  const lines=Math.min(3,m.era);                 // engraved lines inside the edge
-  const rivet=(x,y)=>'<circle cx="'+x+'" cy="'+y+'" r="3.4" fill="#0A0906" '+
-    'stroke="'+col+'" stroke-width="1" opacity=".55"/>'+
-    '<circle cx="'+(x-0.9)+'" cy="'+(y-0.9)+'" r="1.2" fill="'+col+'" opacity=".35"/>';
-  let g='<defs><linearGradient id="'+id+'" x1="0" y1="0" x2="0" y2="1">'+
-    '<stop offset="0" stop-color="#232018"/><stop offset="1" stop-color="#100E0A"/>'+
-    '</linearGradient></defs>';
-  g+='<rect x="2" y="2" width="196" height="104" rx="7" fill="url(#'+id+')" '+
-    'stroke="'+col+'" stroke-width="1.6" opacity=".95"/>';
-  /* the patina: the rank colour soaked into the metal as the marks pile up */
-  g+='<rect x="2" y="2" width="196" height="104" rx="7" fill="'+col+
-    '" opacity="'+(0.03+0.05*age).toFixed(3)+'"/>';
-  for(let i=1;i<=lines;i++)
-    g+='<rect x="'+(2+i*3.5)+'" y="'+(2+i*3.5)+'" width="'+(196-i*7)+'" height="'+
-      (104-i*7)+'" rx="'+(7-i)+'" fill="none" stroke="'+col+
-      '" stroke-width=".7" opacity="'+(0.30-i*0.06).toFixed(2)+'"/>';
-  g+=rivet(17,17)+rivet(183,17)+rivet(17,91)+rivet(183,91);
-  /* stamped header, and the mark of the plate */
-  g+='<text class="pl-t" x="31" y="23" font-size="8">ODO · BUILT</text>';
-  g+='<text class="pl-t pl-mk" x="169" y="23" font-size="8" text-anchor="end" fill="'+
-    col+'">MK '+romanOf(m.mk)+'</text>';
-  g+='<line x1="31" y1="30" x2="169" y2="30" stroke="'+col+
-    '" stroke-width=".8" opacity=".3"/>';
-  /* the number, struck into a recess */
-  g+='<text class="pl-t" x="31" y="45" font-size="7.5">LEVEL</text>';
-  const fs=n<100?30:n<1000?24:19;
-  g+='<rect x="29" y="50" width="'+(n<100?46:n<1000?58:70)+'" height="34" rx="3" '+
-    'fill="#0A0906" stroke="'+col+'" stroke-width=".9" opacity=".9"/>';
-  g+='<text class="pl-n" x="'+(29+(n<100?23:n<1000?29:35))+'" y="67.5" '+
-    'text-anchor="middle" dominant-baseline="central" font-size="'+fs+'" fill="'+
-    col+'">'+n+'</text>';
-  /* rank, tier and the punch marks */
-  g+='<text class="pl-t pl-rank" x="169" y="48" font-size="9.5" text-anchor="end">'+
-    esc(ri.name.toUpperCase())+'</text>';
-  g+='<text class="pl-t" x="169" y="60" font-size="7.5" text-anchor="end">TIER '+
-    ri.roman+'</text>';
-  let mx=169;
-  for(let i=0;i<m.pips;i++){
-    g+='<circle cx="'+(mx-3).toFixed(1)+'" cy="72" r="2.6" fill="'+col+'"/>';
-    mx-=9;
+  const m=levelMarks(n), ri=rankInfo(n), col=ri.col;
+  const W=width||178;
+  const id='gx'+(++badgeSeq);
+  const top=DIAL_MIN+(m.era%DIAL_SPAN);       // the face is remade every 7 marks
+  const A0=-125, A1=125, span=A1-A0;
+  const redFrom=A0+span*0.78;
+  let s='<defs><filter id="'+id+'" x="-60%" y="-60%" width="220%" height="220%">'+
+    '<feGaussianBlur stdDeviation="3.4" result="b"/><feMerge>'+
+    '<feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  s+='<circle cx="100" cy="100" r="94" fill="#0E0D09" stroke="'+col+
+    '" stroke-width="1.2" opacity=".35"/>';
+  s+='<circle cx="100" cy="100" r="86" fill="#080806" stroke="'+col+
+    '" stroke-width="2" opacity=".55"/>';
+  s+='<path d="'+dialArc(100,100,74,A0,A1)+'" fill="none" stroke="'+col+
+    '" stroke-width="2" opacity=".30"/>';
+  s+='<path d="'+dialArc(100,100,74,redFrom,A1)+'" fill="none" stroke="'+col+
+    '" stroke-width="5" opacity=".95" filter="url(#'+id+')"/>';
+  for(let i=0;i<=top;i++){
+    const a=A0+span*(i/top);
+    const p=polarAt(100,100,74,a), q=polarAt(100,100,63,a);
+    s+='<line x1="'+p[0].toFixed(1)+'" y1="'+p[1].toFixed(1)+'" x2="'+
+      q[0].toFixed(1)+'" y2="'+q[1].toFixed(1)+'" stroke="'+col+
+      '" stroke-width="2.4" opacity=".85"/>';
+    const t=polarAt(100,100,52,a);
+    s+='<text class="gg-dial" x="'+t[0].toFixed(1)+'" y="'+(t[1]+4).toFixed(1)+
+      '" text-anchor="middle" font-size="10" fill="'+col+'" opacity=".55">'+i+'</text>';
+    if(i<top)for(let k=1;k<5;k++){
+      const aa=a+span/top*(k/5);
+      const pp=polarAt(100,100,74,aa), qq=polarAt(100,100,68,aa);
+      s+='<line x1="'+pp[0].toFixed(1)+'" y1="'+pp[1].toFixed(1)+'" x2="'+
+        qq[0].toFixed(1)+'" y2="'+qq[1].toFixed(1)+'" stroke="'+col+
+        '" stroke-width="1" opacity=".3"/>';
+    }
   }
-  for(let i=0;i<m.bars;i++){
-    g+='<rect x="'+(mx-13).toFixed(1)+'" y="69.4" width="13" height="5.2" rx="1.6" '+
-      'fill="'+col+'"/>';
-    mx-=17;
-  }
-  g+='<text class="pl-t" x="169" y="90" font-size="6.5" text-anchor="end" '+
-    'opacity=".55">NO. '+String(n).padStart(4,'0')+'</text>';
-  return '<svg class="lb" viewBox="0 0 200 108" width="'+W+'" height="'+H+
-    '" role="img" aria-label="Level '+n+', '+esc(ri.name)+'">'+g+'</svg>';
+  /* the needle reads how far through the rank you are, so it is never pinned
+     at either stop: a little off zero on arrival, short of the redline at the
+     end, and moving on every single level in between */
+  const na=A0+span*(0.06+0.86*Math.max(0,Math.min(1,ri.into)));
+  const np=polarAt(100,100,70,na), nb=polarAt(100,100,-14,na);
+  s+='<line class="gg-needle" x1="'+nb[0].toFixed(1)+'" y1="'+nb[1].toFixed(1)+
+    '" x2="'+np[0].toFixed(1)+'" y2="'+np[1].toFixed(1)+'" stroke="'+col+
+    '" stroke-width="3.4" stroke-linecap="round" filter="url(#'+id+')"/>';
+  s+='<circle cx="100" cy="100" r="9" fill="#080806" stroke="'+col+
+    '" stroke-width="2.4"/>';
+  s+='<text class="gg-mk" x="100" y="68" text-anchor="middle" font-size="8" '+
+    'fill="'+col+'" opacity=".5">MK '+romanOf(m.mk)+'</text>';
+  s+='<text class="gg-lvl" x="100" y="137" text-anchor="middle" font-size="'+
+    (n<100?34:n<1000?27:21)+'" fill="'+col+'">'+n+'</text>';
+  s+='<text class="gg-rank" x="100" y="157" text-anchor="middle" font-size="8" '+
+    'fill="#847E6C">'+esc(ri.name.toUpperCase())+'</text>';
+  return '<svg class="lb" viewBox="0 0 200 200" width="'+W+'" height="'+W+
+    '" role="img" aria-label="Level '+n+', '+esc(ri.name)+'">'+s+'</svg>';
 }
 
 /* ---------- ranks that do not stop ----------
@@ -4755,7 +4760,7 @@ function rankInfo(lvl){
     const tiers=Math.min(5,Math.max(3,Math.round(span/4)));
     const tier=Math.min(tiers,1+Math.floor(into/span*tiers));
     return {name:r.name,col:r.col,tier,tiers,roman:ROMAN[tier-1],
-      next:next.name,nextAt:next.lvl,era:1};
+      next:next.name,nextAt:next.lvl,era:1,into:into/span};
   }
   /* past the named ladder: numbered eras, so there is always a next */
   const over=lvl-r.lvl;
@@ -4766,7 +4771,8 @@ function rankInfo(lvl){
   return {name:r.name+(era>1?' '+romanOf(era):''),
     col:LEGEND_COLS[(era-1)%LEGEND_COLS.length],
     tier,tiers,roman:ROMAN[tier-1],
-    next:r.name+' '+romanOf(era+1),nextAt:r.lvl+era*LEGEND_SPAN,era};
+    next:r.name+' '+romanOf(era+1),nextAt:r.lvl+era*LEGEND_SPAN,era,
+    into:into/LEGEND_SPAN};
 }
 /* every source of xp, itemised, so the number is never mysterious */
 function xpBreakdown(d){
@@ -4839,7 +4845,7 @@ function celebrate(level,gained,drive){
   const box=$('levelUp');if(!box)return;
   box.style.setProperty('--rank',r.col);
   const lub=$('luBadge');
-  if(lub)lub.innerHTML=levelBadge(level,320);
+  if(lub)lub.innerHTML=levelBadge(level,250);
   $('luLevel').textContent=level;
   $('luRank').innerHTML=r.name+' <span>'+r.roman+'</span>';
   $('luSub').textContent=r.nextAt

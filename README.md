@@ -121,28 +121,30 @@ is otherwise endless. Past the named ranks it carries on in numbered eras of
 twenty levels, Legend II, Legend III and so on, each with its own colour from a
 cycle of nine. There is always a next thing named and a distance to it.
 
-## The level plate
+## The level gauge
 
 A level was a number, and a number is the same shape at 3 as at 300. It is a
-manufacturer's plate now, the kind riveted to a door pillar, with the level
-stamped into the metal. It is generated from the level, so it changes every
-time one is gained and never runs out of ways to change:
+rev counter now, read the way a rev counter is read: the needle sits at how far
+through the rank you are and the redline is where the rank ends, so the gauge
+answers "how close am I" at a glance, which a number never did.
 
-- every level, one more punch mark, up to four
-- every 5 levels, the marks become a bar, up to four bars
-- every 25 levels, the mark of the plate advances — MK I, MK II, MK III
+The dial itself climbs. Every 25 levels it gains a number on the face, 8 up to
+14, and then the face is remade and the mark advances — MK I, MK II, MK III.
+Roman numerals do not run out, so there is no last gauge: the dial just keeps
+being rebuilt for a bigger engine.
 
-Four bars and four punches fill a band of twenty-five exactly, so a band reads
-at a glance. The mark is a Roman numeral and Roman numerals do not run out,
-which is what keeps this going for ever: there is no last plate to reach.
+Every level moves the needle, every 25 rebuilds the face, and every rank
+changes the colour, so nothing about it can settle.
 
-The metal ages with the mark. Each one adds a line engraved inside the edge, up
-to three, and deepens the patina in the rank's colour, so an old plate reads as
-an old plate across the room and a new one reads as freshly stamped. The plate
-also carries the rank, the tier, and a zero-padded serial.
+The needle starts just above zero on a new rank rather than against the stop,
+because a needle on its stop reads as broken. It runs into the redline over the
+last sixth of a rank, which is the point of drawing it this way: revving out
+means a promotion is close. It never passes the end stop at any level.
 
-It sits above the xp bar and fills the level-up card. Level 32 is MK II, one
-bar and one punch, stamped LONG HAULER, TIER III, NO. 0032.
+It sits above the xp bar and fills the level-up card.
+
+Two of these can be on screen at once, so each carries its own filter id; a
+shared one would have the small gauge glowing through the big one.
 
 `driveXp()` is now the sum of `xpBreakdown()`, so the itemised list can never
 disagree with the total. The breakdown appears in each drive's sheet, on the
