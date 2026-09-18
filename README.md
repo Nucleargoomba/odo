@@ -312,12 +312,17 @@ Squares are built from the coverage cells rather than the raw points, so a
 region counts the same distinct road the heat map does and a commute driven
 two hundred times counts once. They are named from the town labels already
 looked up for the fog map, so no region costs a lookup of its own; one with no
-named town nearby keeps its grid reference.
+named town nearby keeps its grid reference, and the list says so and points at
+the button that fixes it.
+
+Each button sits with what it changes: "Name the towns" is on the map because
+it labels the map, "Measure the squares" is under this list because it fills
+this list.
 
 ### Measuring a square against the map
 
-"Measure the squares" asks Overpass for the total length of drivable road in
-each square, which gives the denominator the paragraph above says the app does
+"Measure the squares", under the list on the Stats tab, asks Overpass for the
+total length of drivable road in each square, which gives the denominator the paragraph above says the app does
 not have. It is one request per square and about 350 bytes back, because
 Overpass sums the length server-side rather than sending every street:
 

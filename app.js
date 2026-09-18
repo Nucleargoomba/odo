@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · real region shares · assets v23';
+const BUILD='2026-09-18 · buttons where they belong · assets v24';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1641,6 +1641,7 @@ function regionsHtml(){
       '</div></div>';
   }).join('');
   const meas=rs.filter(r=>r.measured).length;
+  const unnamed=rs.filter(r=>regionName(r).indexOf('Square ')===0).length;
   return '<div class="cap">'+rs.length+' squares touched · 10 km to a side · '+
     (meas===rs.length
       ? 'share of the roads that exist, measured against the map'
@@ -1649,7 +1650,10 @@ function regionsHtml(){
         : 'distance driven in each — “Measure the squares” turns these into shares')+
     '</div>'+
     '<div class="rg-list">'+rows+'</div>'+
-    (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'');
+    (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'')+
+    (unnamed?'<div class="cap">'+unnamed+' square'+(unnamed>1?'s':'')+
+      ' still showing a grid reference — they take their names from the '+
+      'map, under “Name the towns”.</div>':'');
 }
 
 /* ---------- how much road a square actually holds ----------

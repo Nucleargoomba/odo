@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=23">
+<link rel="stylesheet" href="app.css?v=24">
 </head>
 <body>
 <div class="wrap">
@@ -194,6 +194,9 @@
 
     <h2>Roads you know, by area</h2>
     <div class="ch-box" id="statRegions"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost key" id="btnRoads">Measure the squares</button>
+    </div>
 
     <h2>Month by month</h2>
     <div class="ch-box" id="statMonth"></div>
@@ -320,7 +323,6 @@
       <div class="row" style="margin-bottom:8px">
         <button class="ghost" id="btnFog">Fog of war</button>
         <button class="ghost" id="btnName" style="display:none">Name the towns</button>
-        <button class="ghost" id="btnRoads">Measure the squares</button>
       </div>
       <div class="seg small" id="heatSel">
         <button data-h="week">This week</button>
@@ -387,6 +389,6 @@
 
 <div class="toast" id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
