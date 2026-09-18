@@ -314,6 +314,41 @@ two hundred times counts once. They are named from the town labels already
 looked up for the fog map, so no region costs a lookup of its own; one with no
 named town nearby keeps its grid reference.
 
+### Measuring a square against the map
+
+"Measure the squares" asks Overpass for the total length of drivable road in
+each square, which gives the denominator the paragraph above says the app does
+not have. It is one request per square and about 350 bytes back, because
+Overpass sums the length server-side rather than sending every street:
+
+    way["highway"~"^(motorway|trunk|...)$"](bbox);
+    make stat total=sum(length());
+
+Only roads you could drive down are counted — no tracks, footpaths, service
+roads or car parks. Answers are kept, so a square is asked about once.
+
+Once a square is measured its tier is a real share: Been through at 2%, Driven
+a fair bit at 6, Driven a lot at 12, Driven a great deal at 20. Those look low
+and are not. The square holding Hasselt carries 500 km of road and 78.7 km of
+it has been driven, which is 16%; the next square along is 66.0 of 616.5, or
+11%. They are the two most-driven squares there are, so the ladder reaches
+just past them. A tier at 75% would be one nobody ever reaches.
+
+The share is conservative in a town. Driven distance is counted in distinct
+100 m cells and a cell counts once whatever runs through it, so three parallel
+streets count once on top and three times underneath. It is fair in the
+countryside and an under-read in a city centre.
+
+The public Overpass servers are free, need no key, and are frequently busy;
+504 and 429 are normal. So three mirrors are tried in turn, each answered
+square is saved as it arrives, and a square that could not be reached is left
+unasked rather than recorded as having no roads — which would have marked
+every square the server was too busy for as roadless for ever. Tapping the
+button again picks up exactly where it stopped.
+
+A square that has not been measured still shows distance driven, which is all
+the app knows offline.
+
 No tier means a square is finished, because the app has no way to know what
 finished would be.
 

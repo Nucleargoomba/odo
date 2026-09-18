@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · honest region tiers · assets v22';
+const BUILD='2026-09-18 · real region shares · assets v23';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1410,6 +1410,7 @@ document.querySelectorAll('#heatSel button').forEach(b=>{
 $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
 $('btnName').onclick=()=>nameFogPlaces();
+$('btnRoads').onclick=()=>fetchRegionRoads();
 $('btnFog').onclick=async()=>{
   settings.fog=!settings.fog;
   await saveV2(K_SET,settings);
@@ -1535,16 +1536,38 @@ const REGION=10000;                    // metres
    holding a city is a good deal of driving and nothing like all of it. */
 const REGION_TIERS=[[2,'Been through'],[10,'Driven a fair bit'],
   [30,'Driven a lot'],[60,'Driven a great deal']];
+/* The same ladder once a square has been measured and there is a real
+   denominator. The percentages are low on purpose: the square holding
+   Hasselt carries 500 km of road and 78.7 km of it has been driven, which is
+   16%; the next square along is 66.0 km of 616.5, which is 11%. Those are
+   the two most-driven squares there are, so the ladder is built to reach
+   just past them. A tier at 75% would be a tier nobody ever reaches, which
+   is how the first version of this went wrong.
+   Only two squares have been measured against the map so far. When the rest
+   have been, look at the spread again before trusting these. */
+const REGION_PCT_TIERS=[[2,'Been through'],[6,'Driven a fair bit'],
+  [12,'Driven a lot'],[20,'Driven a great deal']];
 let regionCache=null;
 function regionKey(lat,lng){
   const dLat=REGION/111320, dLng=REGION/(111320*Math.cos(lat*Math.PI/180));
   return Math.round(lat/dLat)+':'+Math.round(lng/dLng);
 }
-function regionTier(kmDriven){
+function pickTier(table,v){
   let t=null;
-  REGION_TIERS.forEach(x=>{if(kmDriven>=x[0])t=x});
-  const next=REGION_TIERS.find(x=>kmDriven<x[0])||null;
-  return {tier:t,next,to:next?next[0]-kmDriven:0};
+  table.forEach(x=>{if(v>=x[0])t=x});
+  const next=table.find(x=>v<x[0])||null;
+  return {tier:t,next,to:next?next[0]-v:0};
+}
+function regionTier(kmDriven){return pickTier(REGION_TIERS,kmDriven)}
+/* Once a square has been measured against the map there is a real
+   denominator, so the tier is a share of the roads that exist and can say so.
+   Until then it falls back to plain distance, which is all the app knows
+   offline and never pretends to be more. */
+function regionStanding(r){
+  const pct=regionPct(r);
+  if(pct==null)return Object.assign({measured:false,pct:null},
+    pickTier(REGION_TIERS,r.km));
+  return Object.assign({measured:true,pct},pickTier(REGION_PCT_TIERS,pct));
 }
 /* Built from the coverage cells rather than from the points, so a region
    counts the same distinct road the heat map does and a stretch driven two
@@ -1569,7 +1592,7 @@ function regions(){
   byReg.forEach(r=>{
     r.lat/=r.cells;r.lng/=r.cells;
     r.km=r.cells*CELL/1000;
-    Object.assign(r,regionTier(r.km));
+    Object.assign(r,regionStanding(r));
     out.push(r);
   });
   return regionCache=out.sort((a,b)=>b.km-a.km);
@@ -1592,8 +1615,8 @@ function regionName(r){
 function regionXp(){
   return regions().reduce((a,r)=>{
     if(!r.tier)return a;
-    const i=REGION_TIERS.findIndex(x=>x[1]===r.tier[1]);
-    return a+(i+1)*40;
+    const tbl=r.measured?REGION_PCT_TIERS:REGION_TIERS;
+    return a+(tbl.findIndex(x=>x[1]===r.tier[1])+1)*40;
   },0);
 }
 function regionsHtml(){
@@ -1602,23 +1625,113 @@ function regionsHtml(){
     'Drive somewhere and it will start filling in.</div>';
   const done=rs.filter(r=>r.tier).length;
   const rows=rs.slice(0,12).map(r=>{
-    const pct=r.next?Math.round(r.km/r.next[0]*100):100;
-    const tier=r.tier?r.tier[1]:'Barely touched';
+    const road=regionRoadKm(r);
+    const fill=r.measured?r.pct:(r.next?r.km/r.next[0]*100:100);
+    const tier=r.tier?r.tier[1]:(r.measured?'Barely touched':'Barely touched');
     return '<div class="rg-row"><div class="rg-top">'+
       '<span class="n">'+esc(regionName(r))+'</span>'+
       '<span class="t'+(r.tier?' got':'')+'">'+tier+'</span></div>'+
-      '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,pct))+'%"></i></div>'+
-      '<div class="rg-sub">'+r.km.toFixed(1)+' km of road'+
-      (r.next?' · '+(r.to).toFixed(1)+' km more for “'+r.next[1]+'”':'')+
+      '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,fill))+'%"></i></div>'+
+      '<div class="rg-sub">'+
+      (r.measured
+        ? r.km.toFixed(1)+' of '+road.toFixed(0)+' km · '+r.pct.toFixed(1)+'%'+
+          (r.next?' · '+r.to.toFixed(1)+' points more for “'+r.next[1]+'”':'')
+        : r.km.toFixed(1)+' km of road'+
+          (r.next?' · '+r.to.toFixed(1)+' km more for “'+r.next[1]+'”':''))+
       '</div></div>';
   }).join('');
+  const meas=rs.filter(r=>r.measured).length;
   return '<div class="cap">'+rs.length+' squares touched · 10 km to a side · '+
-    'how much road you have driven in each, not how much of it there is'+
+    (meas===rs.length
+      ? 'share of the roads that exist, measured against the map'
+      : meas
+        ? meas+' measured against the map; the rest show distance driven'
+        : 'distance driven in each — “Measure the squares” turns these into shares')+
     '</div>'+
     '<div class="rg-list">'+rows+'</div>'+
     (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'');
 }
 
+/* ---------- how much road a square actually holds ----------
+   Overpass will sum the length of every road in a bounding box server-side,
+   so the answer to "how much of this place have I driven" costs one short
+   request and about 350 bytes rather than the geometry of every street.
+
+   Only roads you could drive down are counted: no tracks, no footpaths, no
+   service roads and car parks, which would otherwise inflate the total with
+   things no one drives for their own sake.
+
+   The answer is kept, because a square's roads do not change between
+   Saturdays, and the whole point is not to ask twice. */
+const OVERPASS_MIRRORS=[
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter'];
+const OVERPASS_ROADS='motorway|trunk|primary|secondary|tertiary|unclassified|'+
+  'residential|living_street';
+function regionBox(key){
+  const p=key.split(':');
+  const dLat=REGION/111320;
+  const lat=Number(p[0])*dLat;
+  const dLng=REGION/(111320*Math.cos(lat*Math.PI/180));
+  const lng=Number(p[1])*dLng;
+  return [lat-dLat/2,lng-dLng/2,lat+dLat/2,lng+dLng/2];
+}
+function regionRoadKm(r){
+  const v=settings.regionRoad&&settings.regionRoad[r.key];
+  return (typeof v==='number'&&v>0)?v:null;
+}
+/* The share is honest about what it divides. Driven distance is counted in
+   distinct 100 m cells, and a cell holds one square whatever runs through it,
+   so where streets are dense the figure reads low: three parallel streets in
+   one cell count once on top and three times underneath. It is a fair measure
+   of a countryside square and a conservative one of a town centre. */
+function regionPct(r){
+  const road=regionRoadKm(r);
+  return road?Math.min(100,r.km/road*100):null;
+}
+/* Returns metres, or null when the question could not be asked. The
+   difference matters: a square that genuinely holds no road is an answer and
+   is remembered, while a timeout is not an answer and must be asked again.
+   Writing zero for both would have quietly marked every square the server
+   was too busy for as roadless, for ever. */
+async function overpassRoadM(box){
+  const q='[out:json][timeout:90];way["highway"~"^('+OVERPASS_ROADS+')$"]('+
+    box.map(x=>x.toFixed(5)).join(',')+');make stat total=sum(length());out;';
+  for(const host of OVERPASS_MIRRORS){
+    try{
+      const res=await fetch(host+'?data='+encodeURIComponent(q));
+      if(!res.ok)continue;                      // 429 and 504 are common here
+      const j=await res.json();
+      const el=(j.elements||[])[0];
+      const m=el&&el.tags?Number(el.tags.total):0;
+      if(isFinite(m))return m;
+    }catch(e){/* try the next mirror */}
+  }
+  return null;
+}
+async function fetchRegionRoads(){
+  const rs=regions();
+  if(!rs.length)return toast('Drive somewhere first.');
+  settings.regionRoad=settings.regionRoad||{};
+  const todo=rs.filter(r=>settings.regionRoad[r.key]===undefined);
+  if(!todo.length)return toast('Every square already measured.');
+  toast('Measuring '+todo.length+' square'+(todo.length>1?'s':'')+
+    ' against the map — a minute or two. It picks up where it stops.');
+  let ok=0,miss=0;
+  for(const r of todo){
+    const m=await overpassRoadM(regionBox(r.key));
+    if(m===null)miss++;                         // left unset, so it is asked again
+    else{settings.regionRoad[r.key]=m/1000;ok++}
+    regionCache=null;
+    await saveV2(K_SET,settings);               // keep what has been answered
+    await new Promise(x=>setTimeout(x,1500));   // the public servers ask for restraint
+  }
+  render();
+  toast(ok?'Measured '+ok+' square'+(ok>1?'s':'')+
+    (miss?'. '+miss+' timed out — tap again to finish them.':'.')
+    :'The map service is busy. Nothing lost — tap again in a minute.');
+}
 /* ---------- the towns behind the fog ----------
    With the map taken away the coverage floats in nothing, so the places you
    drive through are labelled back in. The labels come from your own driving
