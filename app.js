@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · buttons where they belong · assets v24';
+const BUILD='2026-09-18 · one scale at a time · assets v25';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1306,7 +1306,7 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
@@ -1357,7 +1357,7 @@ function openDrive(id){
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
-    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;roadCache=null;await saveV2(K_DRV,drives);
+    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;roadCache=null;await saveV2(K_DRV,drives);
     $('sheet').classList.remove('on');render();toast('Drive deleted.');
   };
   setTimeout(()=>{
@@ -1600,16 +1600,34 @@ function regions(){
 /* Named from the town labels already looked up for the fog map, so no region
    costs a request of its own. A region with no named town nearby keeps its
    grid reference, which is at least stable. */
-function regionName(r){
-  let best=null,bd=REGION;
-  fogClusters().forEach(c=>{
-    const nm=fogName(c);
-    if(!nm)return;
-    const d=hav(r.lat,r.lng,c.lat,c.lng);
-    if(d<bd){bd=d;best=nm}
+/* Two squares either side of a town are both nearest to that town, and the
+   list showed "Nazareth" twice with no way to tell which was which. The
+   closest keeps the bare name and the others say which side of it they are,
+   so every row names somewhere different. */
+let regionNameCache=null;
+function regionNameMap(){
+  if(regionNameCache)return regionNameCache;
+  const out=new Map(), groups=new Map();
+  regions().forEach(r=>{
+    let best=null,bd=REGION;
+    fogClusters().forEach(c=>{
+      const nm=fogName(c);
+      if(!nm)return;
+      const d=hav(r.lat,r.lng,c.lat,c.lng);
+      if(d<bd){bd=d;best={nm,lat:c.lat,lng:c.lng,d}}
+    });
+    if(!best){out.set(r.key,'Square '+r.key);return}
+    const g=groups.get(best.nm)||[];
+    g.push({r,town:best});groups.set(best.nm,g);
   });
-  return best||('Square '+r.key);
+  groups.forEach((g,nm)=>{
+    g.sort((a,b)=>a.town.d-b.town.d);
+    g.forEach((x,i)=>out.set(x.r.key, i===0?nm
+      :nm+' '+compassOf(bearing(x.town.lat,x.town.lng,x.r.lat,x.r.lng))));
+  });
+  return regionNameCache=out;
 }
+function regionName(r){return regionNameMap().get(r.key)||('Square '+r.key)}
 /* A standing pot, the way completed challenges are: reaching a tier is worth
    holding, and it cannot be lost. */
 function regionXp(){
@@ -1623,34 +1641,64 @@ function regionsHtml(){
   const rs=regions();
   if(!rs.length)return '<div class="empty" style="border:0">'+
     'Drive somewhere and it will start filling in.</div>';
-  const done=rs.filter(r=>r.tier).length;
-  const rows=rs.slice(0,12).map(r=>{
+  /* Once any square has a real share, the ones without it must not borrow the
+     same words. Distance tiers and share tiers are different scales, and side
+     by side they lie: a square with 54.9 km driven and no denominator filled
+     its bar to the brim beside Hasselt, which is the best known square there
+     is, sitting at 16% of the road it actually holds. So when a measurement
+     exists anywhere, an unmeasured square shows its distance and says plainly
+     that it has not been measured, rather than being given a tier it has not
+     earned on a scale it is not on. With nothing measured at all, distance is
+     all there is and the old ladder stands. */
+  const meas=rs.filter(r=>r.measured);
+  const mixed=meas.length>0;
+  const order=mixed
+    ? meas.slice().sort((a,b)=>b.pct-a.pct)
+        .concat(rs.filter(r=>!r.measured).sort((a,b)=>b.km-a.km))
+    : rs;
+  const rows=order.slice(0,14).map(r=>{
     const road=regionRoadKm(r);
-    const fill=r.measured?r.pct:(r.next?r.km/r.next[0]*100:100);
-    const tier=r.tier?r.tier[1]:(r.measured?'Barely touched':'Barely touched');
+    if(r.measured){
+      const fill=r.next?r.pct/r.next[0]*100:100;
+      return '<div class="rg-row"><div class="rg-top">'+
+        '<span class="n">'+esc(regionName(r))+'</span>'+
+        '<span class="t got">'+(r.tier?r.tier[1]:'Barely touched')+'</span></div>'+
+        '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,fill))+'%"></i></div>'+
+        '<div class="rg-sub">'+r.km.toFixed(1)+' of '+road.toFixed(0)+' km · '+
+        '<b>'+r.pct.toFixed(1)+'%</b>'+
+        (r.next?' · '+(r.next[0]-r.pct).toFixed(1)+' points more for “'+
+          r.next[1]+'”':'')+'</div></div>';
+    }
+    if(mixed)
+      return '<div class="rg-row pending"><div class="rg-top">'+
+        '<span class="n">'+esc(regionName(r))+'</span>'+
+        '<span class="t">Not measured</span></div>'+
+        '<div class="rg-bar"><i style="width:0%"></i></div>'+
+        '<div class="rg-sub">'+r.km.toFixed(1)+' km driven · '+
+        'measure to see the share</div></div>';
+    const fill=r.next?r.km/r.next[0]*100:100;
     return '<div class="rg-row"><div class="rg-top">'+
       '<span class="n">'+esc(regionName(r))+'</span>'+
-      '<span class="t'+(r.tier?' got':'')+'">'+tier+'</span></div>'+
+      '<span class="t'+(r.tier?' got':'')+'">'+
+      (r.tier?r.tier[1]:'Barely touched')+'</span></div>'+
       '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,fill))+'%"></i></div>'+
-      '<div class="rg-sub">'+
-      (r.measured
-        ? r.km.toFixed(1)+' of '+road.toFixed(0)+' km · '+r.pct.toFixed(1)+'%'+
-          (r.next?' · '+r.to.toFixed(1)+' points more for “'+r.next[1]+'”':'')
-        : r.km.toFixed(1)+' km of road'+
-          (r.next?' · '+r.to.toFixed(1)+' km more for “'+r.next[1]+'”':''))+
+      '<div class="rg-sub">'+r.km.toFixed(1)+' km of road'+
+      (r.next?' · '+r.to.toFixed(1)+' km more for “'+r.next[1]+'”':'')+
       '</div></div>';
   }).join('');
-  const meas=rs.filter(r=>r.measured).length;
+  const left=rs.length-meas.length;
   const unnamed=rs.filter(r=>regionName(r).indexOf('Square ')===0).length;
   return '<div class="cap">'+rs.length+' squares touched · 10 km to a side · '+
-    (meas===rs.length
-      ? 'share of the roads that exist, measured against the map'
-      : meas
-        ? meas+' measured against the map; the rest show distance driven'
-        : 'distance driven in each — “Measure the squares” turns these into shares')+
-    '</div>'+
-    '<div class="rg-list">'+rows+'</div>'+
-    (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'')+
+    (mixed
+      ? (left
+          ? meas.length+' measured against the map, '+left+' still to go'
+          : 'every one measured against the map')
+      : 'distance driven in each — “Measure the squares” turns these into shares')+
+    '</div><div class="rg-list">'+rows+'</div>'+
+    (order.length>14?'<div class="cap">Showing fourteen of '+rs.length+'.</div>':'')+
+    (mixed&&left?'<div class="cap">'+left+' square'+(left>1?'s':'')+
+      ' timed out on the map service — tap “Measure the squares” '+
+      'again to finish them.</div>':'')+
     (unnamed?'<div class="cap">'+unnamed+' square'+(unnamed>1?'s':'')+
       ' still showing a grid reference — they take their names from the '+
       'map, under “Name the towns”.</div>':'');
@@ -1727,7 +1775,7 @@ async function fetchRegionRoads(){
     const m=await overpassRoadM(regionBox(r.key));
     if(m===null)miss++;                         // left unset, so it is asked again
     else{settings.regionRoad[r.key]=m/1000;ok++}
-    regionCache=null;
+    regionCache=null;regionNameCache=null;
     await saveV2(K_SET,settings);               // keep what has been answered
     await new Promise(x=>setTimeout(x,1500));   // the public servers ask for restraint
   }
@@ -1874,7 +1922,7 @@ $('fileIn').onchange=e=>{
         await saveV2(K_CAR,cars);
       }
       if(raw.settings){settings=Object.assign(settings,raw.settings);await saveV2(K_SET,settings)}
-      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;await saveV2(K_DRV,drives);render();
+      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;await saveV2(K_DRV,drives);render();
       toast(add.length+' drives restored.');
     }catch(err){toast("That file isn't an Odo backup.")}
     e.target.value='';
@@ -2496,7 +2544,7 @@ $('gpxIn').onchange=async e=>{
       inc.forEach(d=>{if(!have.has(d.id)&&d.dist>150){drives.push(d);added++}});
     }catch(err){}
   }
-  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;await saveV2(K_DRV,drives);render();
+  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;await saveV2(K_DRV,drives);render();
   toast(added?added+' tracks imported.':'Nothing usable in that file.');
   e.target.value='';
 };

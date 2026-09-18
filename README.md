@@ -351,8 +351,20 @@ unasked rather than recorded as having no roads — which would have marked
 every square the server was too busy for as roadless for ever. Tapping the
 button again picks up exactly where it stopped.
 
-A square that has not been measured still shows distance driven, which is all
-the app knows offline.
+A square that has not been measured still shows distance driven, but it is not
+given a tier once any other square has a real share. Distance tiers and share
+tiers are different scales and side by side they lie: a square with 54.9 km
+driven and no denominator filled its bar to the brim next to Hasselt, the best
+known square there is, sitting at 16% of the road it actually holds. So an
+unmeasured square reads "Not measured" and says what it is waiting for.
+
+With nothing measured at all there is no second scale to be confused with, and
+the distance ladder stands on its own.
+
+Two squares either side of a town are both nearest to that town, so the list
+showed the same name twice with no way to tell them apart. The closest keeps
+the bare name and the others say which side they are on — "Nazareth" and
+"Nazareth SW".
 
 No tier means a square is finished, because the app has no way to know what
 finished would be.

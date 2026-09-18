@@ -673,3 +673,7 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 .rg-bar{height:5px;background:#0A0906;border-radius:3px;overflow:hidden;margin:5px 0 4px}
 .rg-bar i{display:block;height:100%;background:var(--amber);border-radius:3px;opacity:.75}
 .rg-sub{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate)}
+
+.rg-row.pending .rg-top .n{color:var(--slate)}
+.rg-row.pending .rg-bar{background:#0A0906;opacity:.5}
+.rg-sub b{color:var(--amber);font-weight:400}
