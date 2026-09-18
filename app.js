@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · progress and reasons · assets v26';
+const BUILD='2026-09-18 · no more hanging · assets v27';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1411,6 +1411,7 @@ $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
 $('btnName').onclick=()=>nameFogPlaces();
 $('btnRoads').onclick=()=>fetchRegionRoads();
+$('btnRoadsStop').onclick=()=>{roadsStop=true;toast('Stopping after this square…')};
 $('btnFog').onclick=async()=>{
   settings.fog=!settings.fog;
   await saveV2(K_SET,settings);
@@ -1756,13 +1757,25 @@ function regionPct(r){
    Overpass reports a timeout two different ways. Usually it is an HTTP status,
    but under load it answers 200 with no elements and a "remark" explaining
    itself, which would otherwise read as a square holding no road at all. */
+/* A square normally answers in under two seconds. Ninety was the server-side
+   allowance and there was no client-side one at all, so a single heavy square
+   could sit through three mirrors at ninety seconds each with the screen
+   frozen on its name. Twenty seconds is far past a healthy answer and short
+   enough that a bad square costs a minute rather than five. */
+const OVERPASS_WAIT=20000;
+function fetchFor(url,ms){
+  if(typeof AbortController==='undefined')return fetch(url);
+  const ac=new AbortController();
+  const t=setTimeout(()=>ac.abort(),ms);
+  return fetch(url,{signal:ac.signal}).finally(()=>clearTimeout(t));
+}
 async function overpassRoadM(box){
-  const q='[out:json][timeout:90];way["highway"~"^('+OVERPASS_ROADS+')$"]('+
+  const q='[out:json][timeout:25];way["highway"~"^('+OVERPASS_ROADS+')$"]('+
     box.map(x=>x.toFixed(5)).join(',')+');make stat total=sum(length());out;';
   let last='no answer';
   for(const host of OVERPASS_MIRRORS){
     try{
-      const res=await fetch(host+'?data='+encodeURIComponent(q));
+      const res=await fetchFor(host+'?data='+encodeURIComponent(q),OVERPASS_WAIT);
       if(!res.ok){
         last='HTTP '+res.status+(res.statusText?' '+res.statusText:'');
         continue;
@@ -1777,8 +1790,10 @@ async function overpassRoadM(box){
       if(isFinite(m))return {m};
       last='unreadable answer';
     }catch(e){
-      /* a thrown fetch is the network, not the server */
-      last=(e&&e.message)?String(e.message).slice(0,60):'no connection';
+      /* a thrown fetch is the network or our own deadline, not the server */
+      last=(e&&e.name==='AbortError')
+        ?'no answer in '+Math.round(OVERPASS_WAIT/1000)+' s'
+        :((e&&e.message)?String(e.message).slice(0,60):'no connection');
     }
   }
   return {err:last};
@@ -1788,6 +1803,7 @@ function progBar(done,total,label,cls){
   return '<div class="pg-bar"><i class="'+(cls||'')+'" style="width:'+pct+'%"></i></div>'+
     '<div class="pg-t">'+esc(label)+'</div>';
 }
+let roadsStop=false;
 async function fetchRegionRoads(){
   const rs=regions();
   if(!rs.length)return toast('Drive somewhere first.');
@@ -1799,15 +1815,26 @@ async function fetchRegionRoads(){
     return;
   }
   if(btn)btn.disabled=true;
+  const stop=$('btnRoadsStop');
+  if(stop)stop.style.display='';
+  roadsStop=false;
   if(box)box.classList.add('on');
   let ok=0,miss=0;
   const errs=new Map();
   for(let i=0;i<todo.length;i++){
+    if(roadsStop)break;
     const r=todo[i];
-    if(box)box.innerHTML=progBar(i,todo.length,
+    /* the label counts the seconds it has been waiting, so a slow square
+       looks slow rather than looking frozen */
+    let waited=0;
+    const paint=()=>{if(box)box.innerHTML=progBar(i,todo.length,
       'Measuring '+(i+1)+' of '+todo.length+' · '+regionName(r)+
-      (miss?' · '+miss+' failed so far':''));
+      (waited>2?' · '+waited+' s':'')+
+      (miss?' · '+miss+' failed':''))};
+    paint();
+    const tick=setInterval(()=>{waited++;paint()},1000);
     const res=await overpassRoadM(regionBox(r.key));
+    clearInterval(tick);
     if(res.err){
       miss++;                                   // left unset, so it is asked again
       errs.set(res.err,(errs.get(res.err)||0)+1);
@@ -1820,14 +1847,18 @@ async function fetchRegionRoads(){
       await new Promise(x=>setTimeout(x,1500)); // the public servers ask for restraint
   }
   if(btn)btn.disabled=false;
+  if(stop)stop.style.display='none';
   render();
   if(box){
     box.classList.add('on');
     const why=[...errs.entries()].sort((a,b)=>b[1]-a[1])
       .map(e=>e[0]+(e[1]>1?' ×'+e[1]:'')).join(' · ');
+    const done=ok+miss;
     box.innerHTML=progBar(ok,todo.length,
       (ok?ok+' of '+todo.length+' measured':'None measured')+
-      (miss?' · '+miss+' failed — tap again to retry them':' · all done'),
+      (roadsStop&&done<todo.length?' · stopped':'')+
+      (miss?' · '+miss+' failed — tap again to retry them':
+        (done<todo.length?'':' · all done')),
       miss?(ok?'part':'bad'):'')+
       (why?'<div class="pg-e">'+esc(why)+'</div>':'');
   }

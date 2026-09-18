@@ -344,9 +344,18 @@ The share is conservative in a town. Driven distance is counted in distinct
 streets count once on top and three times underneath. It is fair in the
 countryside and an under-read in a city centre.
 
-A bar under the button counts the squares as they are measured and names the
-one being asked about, so a run that takes two minutes looks like it is
-working rather than like nothing happening.
+A bar under the button counts the squares as they are measured, names the one
+being asked about and counts the seconds it has been waiting, so a slow square
+looks slow rather than looking frozen. A Stop button ends the run after the
+square in flight, and everything answered so far is kept.
+
+Each request gets twenty seconds and no more. A square normally answers in
+about two, and the densest one here — Antwerp, 1 150 km of road — answers in
+two as well, so twenty is far past healthy. There was no client-side deadline
+at first, only the server-side allowance, which was set to ninety: one square
+on a busy server could sit through three mirrors at ninety seconds each with
+the screen frozen on its name. The server allowance is twenty-five now, under
+our own deadline, so the server gives up before we do and says why.
 
 The public Overpass servers are free, need no key, and are frequently busy;
 504 and 429 are normal. When a square fails, the reason is shown rather than
