@@ -286,12 +286,20 @@ name is shown once, at whichever you have been near most; a place the service
 cannot name is recorded as unknown, stays off the map, and is not asked again.
 Labels are sized by how often you have been there, so home reads loudest.
 
-## Ground you hold
+## Roads you know, by area
 
-The coverage grid grouped into 10 km squares, so exploring has somewhere to
-finish rather than being one number that only ever goes up. Four tiers per
-square: Scouted at 2 km of road, Known at 10, Owned at 30, Mastered at 60.
-Each tier reached is a standing pot of xp and cannot be lost.
+The coverage grid grouped into 10 km squares, so exploring is broken into
+places rather than being one number that only ever goes up. Four tiers per
+square, by distance of road driven in it: Been through at 2 km, Driven a fair
+bit at 10, Driven a lot at 30, Driven a great deal at 60. Each tier reached is
+a standing pot of xp and cannot be lost.
+
+The tiers are named for distance driven because that is all that is measured.
+An earlier set called them Scouted, Known, Owned and Mastered, which promises
+a share of the roads that exist — exactly the denominator the next paragraph
+explains the app cannot have. 78 km of road inside a square holding a city is
+a great deal of driving and nothing like all of it, and a tier that says
+"Owned" when you have driven perhaps a fifth of a town is simply lying.
 
 Progress is kilometres of distinct road driven inside a square, not a
 percentage of it. A percentage needs to know how much road the square holds,
@@ -305,5 +313,8 @@ region counts the same distinct road the heat map does and a commute driven
 two hundred times counts once. They are named from the town labels already
 looked up for the fog map, so no region costs a lookup of its own; one with no
 named town nearby keeps its grid reference.
+
+No tier means a square is finished, because the app has no way to know what
+finished would be.
 
 On 66 drives that is 33 squares touched, the best two past 60 km of road.

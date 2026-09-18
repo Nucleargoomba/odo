@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · regions · assets v21';
+const BUILD='2026-09-18 · honest region tiers · assets v22';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1524,11 +1524,17 @@ function showCarPick(id){
    denominator would put every region at two or three percent forever. The
    README already refuses to fake this for coverage and it is refused here.
 
-   The tiers are therefore absolute: 2 km of road in a square is a look
-   around, 10 km is knowing it, 30 km is having driven most of what there is
-   to drive in a rural square. */
+   The tiers are therefore absolute distances, and they are named as such.
+   None of them means a square is finished, because the app has no way to
+   know what finished would be. */
 const REGION=10000;                    // metres
-const REGION_TIERS=[[2,'Scouted'],[10,'Known'],[30,'Owned'],[60,'Mastered']];
+/* Named for how much road you have driven there, because that is what is
+   measured. An earlier set said Scouted, Known, Owned and Mastered, which
+   promises a share of the roads that exist — the very denominator the
+   comment above explains the app cannot have. 78 km of road inside a square
+   holding a city is a good deal of driving and nothing like all of it. */
+const REGION_TIERS=[[2,'Been through'],[10,'Driven a fair bit'],
+  [30,'Driven a lot'],[60,'Driven a great deal']];
 let regionCache=null;
 function regionKey(lat,lng){
   const dLat=REGION/111320, dLng=REGION/(111320*Math.cos(lat*Math.PI/180));
@@ -1597,17 +1603,18 @@ function regionsHtml(){
   const done=rs.filter(r=>r.tier).length;
   const rows=rs.slice(0,12).map(r=>{
     const pct=r.next?Math.round(r.km/r.next[0]*100):100;
-    const tier=r.tier?r.tier[1]:'Passed through';
+    const tier=r.tier?r.tier[1]:'Barely touched';
     return '<div class="rg-row"><div class="rg-top">'+
       '<span class="n">'+esc(regionName(r))+'</span>'+
       '<span class="t'+(r.tier?' got':'')+'">'+tier+'</span></div>'+
       '<div class="rg-bar"><i style="width:'+Math.max(2,Math.min(100,pct))+'%"></i></div>'+
       '<div class="rg-sub">'+r.km.toFixed(1)+' km of road'+
-      (r.next?' · '+(r.to).toFixed(1)+' km to '+r.next[1]:' · nothing left to take')+
+      (r.next?' · '+(r.to).toFixed(1)+' km more for “'+r.next[1]+'”':'')+
       '</div></div>';
   }).join('');
-  return '<div class="cap">'+rs.length+' squares touched · '+done+
-    ' past the first tier · 10 km to a side</div>'+
+  return '<div class="cap">'+rs.length+' squares touched · 10 km to a side · '+
+    'how much road you have driven in each, not how much of it there is'+
+    '</div>'+
     '<div class="rg-list">'+rows+'</div>'+
     (rs.length>12?'<div class="cap">Showing the twelve you know best.</div>':'');
 }
