@@ -282,9 +282,24 @@ lookups, about 35 seconds.
 
 The map then names the places you have been and stays quiet about everywhere
 else. Two clusters either side of a town both answer with the town, so the
-name is shown once, at whichever you have been near most; a place the service
-cannot name is recorded as unknown, stays off the map, and is not asked again.
-Labels are sized by how often you have been there, so home reads loudest.
+name is shown once, at whichever you have been near most. Labels are sized by
+how often you have been there, so home reads loudest.
+
+Nominatim answers one point at a time and rate-limits bulk reverse geocoding,
+so a run of thirty can be cut off part way. That used to pass in silence: a
+cluster whose lookup failed was skipped, and every square nearest to it kept a
+grid reference with nothing on screen saying why. The run now shows a bar, the
+reason for each failure, and a Stop button, exactly as measuring does, and a
+place that could not be named is asked about again on the next run rather than
+written off for good.
+
+The name is taken from the widest thing that names a place a driver would
+recognise — city, then town, village, municipality — and then narrower ones,
+borough, district, suburb, hamlet, locality, and finally whatever the point
+itself is called. The narrow ones matter in the countryside, where there is no
+town for several kilometres but there is a hamlet with a name. The first list
+stopped at municipality and county, which is why some squares kept a grid
+reference even though OpenStreetMap knew perfectly well what was there.
 
 ## Roads you know, by area
 

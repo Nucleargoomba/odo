@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · six squares a request · assets v28';
+const BUILD='2026-09-18 · naming reports itself · assets v29';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1410,6 +1410,7 @@ document.querySelectorAll('#heatSel button').forEach(b=>{
 $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
 $('btnName').onclick=()=>nameFogPlaces();
+$('btnNameStop').onclick=()=>{namingStop=true;toast('Stopping…')};
 $('btnRoads').onclick=()=>fetchRegionRoads();
 $('btnRoadsStop').onclick=()=>{roadsStop=true;toast('Stopping after this square…')};
 $('btnFog').onclick=async()=>{
@@ -1957,33 +1958,91 @@ function fogMarkers(){
     icon:L.divIcon({className:'fog-label'+(x.n>=top*0.5?' big':''),
       html:'<span>'+esc(x.name)+'</span>',iconSize:[0,0]})}));
 }
-/* One call per cluster, on request, exactly as nameePlaces() does for route
-   endpoints. zoom=12 asks for the town rather than the street. A miss is
-   stored as Unknown so it is not asked again every time. */
+/* Nominatim answers one point at a time, a second apart, and rate-limits bulk
+   reverse geocoding, so a run of thirty can be cut off part way through. That
+   used to pass in silence: a cluster whose lookup failed was simply skipped,
+   and every square nearest to it kept a grid reference with nothing on screen
+   saying why. The run now reports itself the way measuring does.
+
+   The name is taken from the widest thing that names a place a driver would
+   recognise, then narrower ones, and finally whatever the point itself is
+   called. The narrow ones matter in the countryside, where there is no town
+   for several kilometres but there is a hamlet with a name. */
+function placeNameFrom(j){
+  const a=(j&&j.address)||{};
+  return a.city||a.town||a.village||a.municipality||a.borough||
+    a.city_district||a.suburb||a.hamlet||a.locality||a.county||
+    (j&&j.name)||null;
+}
+let namingStop=false;
 async function nameFogPlaces(){
   const cl=fogClusters();
   if(!cl.length)return toast('Drive somewhere first.');
   settings.fogNames=settings.fogNames||{};
-  const todo=cl.filter(c=>!settings.fogNames[fogKey(c)]);
-  if(!todo.length)return toast('Every place is already named.');
-  toast('Looking up '+todo.length+' place'+(todo.length>1?'s':'')+
-    ' — about '+Math.ceil(todo.length*1.2)+' s.');
-  let ok=0,bad=0;
-  for(const c of todo){
-    try{
-      const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat='+
-        c.lat+'&lon='+c.lng+'&zoom=12&addressdetails=1');
-      const j=await r.json();
-      const a=j.address||{};
-      const nm=a.city||a.town||a.village||a.municipality||a.county||j.name;
-      if(nm){settings.fogNames[fogKey(c)]=nm;ok++}
-      else{settings.fogNames[fogKey(c)]='Unknown';bad++}
-    }catch(e){bad++}
-    await new Promise(r=>setTimeout(r,1200));
+  /* A place the service could not name is worth asking about once more on a
+     later run: it is far more often a refused request than a nameless field,
+     and storing it for ever turned a busy minute into a permanent blank. */
+  const todo=cl.filter(c=>{
+    const v=settings.fogNames[fogKey(c)];
+    return !v||v==='Unknown';
+  });
+  const box=$('nameProg'), btn=$('btnName'), stop=$('btnNameStop');
+  if(!todo.length){
+    if(box){box.classList.add('on');box.innerHTML=progBar(1,1,'Every place is named.')}
+    return;
   }
-  await saveV2(K_SET,settings);
-  toast(ok?'Named '+ok+' place'+(ok>1?'s':'')+(bad?', '+bad+' not found':'')+'.'
-          :'Could not reach the name service — try again in a minute.');
+  if(btn)btn.disabled=true;
+  if(stop)stop.style.display='';
+  namingStop=false;
+  if(box)box.classList.add('on');
+  let ok=0,bad=0,waited=0;
+  const errs=new Map();
+  const paint=i=>{if(box)box.innerHTML=progBar(ok+bad,todo.length,
+    'Looking up '+(i+1)+' of '+todo.length+
+    (waited>2?' · '+waited+' s':'')+(bad?' · '+bad+' failed':''))};
+  for(let i=0;i<todo.length;i++){
+    if(namingStop)break;
+    const c=todo[i];
+    waited=0;paint(i);
+    const tick=setInterval(()=>{waited++;paint(i)},1000);
+    try{
+      const r=await fetchFor('https://nominatim.openstreetmap.org/reverse'+
+        '?format=jsonv2&zoom=12&addressdetails=1&lat='+c.lat+'&lon='+c.lng,15000);
+      if(!r.ok)throw new Error('HTTP '+r.status+(r.statusText?' '+r.statusText:''));
+      const j=await r.json();
+      const nm=placeNameFrom(j);
+      if(nm){settings.fogNames[fogKey(c)]=nm;ok++}
+      else{
+        settings.fogNames[fogKey(c)]='Unknown';bad++;
+        errs.set('nothing named there',(errs.get('nothing named there')||0)+1);
+      }
+    }catch(e){
+      bad++;
+      const why=(e&&e.name==='AbortError')?'no answer in 15 s'
+        :((e&&e.message)?String(e.message).slice(0,60):'no connection');
+      errs.set(why,(errs.get(why)||0)+1);
+    }
+    clearInterval(tick);
+    await saveV2(K_SET,settings);
+    regionNameCache=null;      // the clusters are unchanged, only their names
+    if(i<todo.length-1&&!namingStop)await new Promise(x=>setTimeout(x,1200));
+  }
+  if(btn)btn.disabled=false;
+  if(stop)stop.style.display='none';
+  regionNameCache=null;
+  render();
+  if(box){
+    const why=[...errs.entries()].sort((a,b)=>b[1]-a[1])
+      .map(e=>e[0]+(e[1]>1?' ×'+e[1]:'')).join(' · ');
+    box.innerHTML=progBar(ok,todo.length,
+      (ok?ok+' of '+todo.length+' named':'None named')+
+      (namingStop&&ok+bad<todo.length?' · stopped':'')+
+      (bad?' · '+bad+' failed — tap again to retry them':' · all done'),
+      bad?(ok?'part':'bad'):'')+
+      (why?'<div class="pg-e">'+esc(why)+'</div>':'');
+  }
+  toast(ok?'Named '+ok+' place'+(ok>1?'s':'')+(bad?', '+bad+' failed.':'.')
+          :'Could not reach the name service — nothing lost, tap again.');
   $('btnAll').onclick();
 }
 
