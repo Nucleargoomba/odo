@@ -334,10 +334,13 @@ roads or car parks. Answers are kept, so a square is asked about once.
 
 Once a square is measured its tier is a real share: Been through at 2%, Driven
 a fair bit at 6, Driven a lot at 12, Driven a great deal at 20. Those look low
-and are not. The square holding Hasselt carries 500 km of road and 78.7 km of
-it has been driven, which is 16%; the next square along is 66.0 of 616.5, or
-11%. They are the two most-driven squares there are, so the ladder reaches
-just past them. A tier at 75% would be one nobody ever reaches.
+and are not. Across twenty-one squares measured against the map the shares run
+0.2% at the lowest, 2.6% a quarter of the way up, 3.4% at the half, 7.3% at
+three-quarters and 15.7% at the top — that best one being Hasselt, 78.7 km
+driven of the 499.9 km it holds. So the ladder puts most squares on the first
+rung, the well-driven ones on the second, the best few on the third, and
+leaves the fourth to be earned: 4 barely touched, 11 been through, 5 driven a
+fair bit, 1 driven a lot. A tier at 75% would be one nobody ever reaches.
 
 The share is conservative in a town. Driven distance is counted in distinct
 100 m cells and a cell counts once whatever runs through it, so three parallel
@@ -349,13 +352,23 @@ being asked about and counts the seconds it has been waiting, so a slow square
 looks slow rather than looking frozen. A Stop button ends the run after the
 square in flight, and everything answered so far is kept.
 
-Each request gets twenty seconds and no more. A square normally answers in
-about two, and the densest one here — Antwerp, 1 150 km of road — answers in
-two as well, so twenty is far past healthy. There was no client-side deadline
-at first, only the server-side allowance, which was set to ninety: one square
-on a busy server could sit through three mirrors at ninety seconds each with
-the screen frozen on its name. The server allowance is twenty-five now, under
-our own deadline, so the server gives up before we do and says why.
+Squares are asked six at a time. Overpass takes several bounding boxes in one
+query and labels each answer, so thirty-three squares cost six requests rather
+than thirty-three — and the number of requests is what matters, because the
+public servers start queueing you. Asked one at a time, answers went from 2 s
+to 20-30 s by the fourth request and squares began falling off the end of the
+deadline. Asked six at a time, a request carrying six squares comes back in
+about 23 s.
+
+Which squares failed looked like it depended on their names. It did, but only
+by accident: a square with no named town nearby is one you barely drove, those
+sort last, and last is when the throttling is worst.
+
+A batch that cannot be asked is split in half and tried again, down to single
+squares, so one awkward square cannot take five good ones down with it every
+time. The deadline scales with the batch — twenty seconds for one square,
+nine more for each after — and the server-side allowance sits under it, so
+the server gives up before we do and says why.
 
 The public Overpass servers are free, need no key, and are frequently busy;
 504 and 429 are normal. When a square fails, the reason is shown rather than

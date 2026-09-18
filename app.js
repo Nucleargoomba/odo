@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · no more hanging · assets v27';
+const BUILD='2026-09-18 · six squares a request · assets v28';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1539,13 +1539,14 @@ const REGION_TIERS=[[2,'Been through'],[10,'Driven a fair bit'],
   [30,'Driven a lot'],[60,'Driven a great deal']];
 /* The same ladder once a square has been measured and there is a real
    denominator. The percentages are low on purpose: the square holding
-   Hasselt carries 500 km of road and 78.7 km of it has been driven, which is
-   16%; the next square along is 66.0 km of 616.5, which is 11%. Those are
-   the two most-driven squares there are, so the ladder is built to reach
-   just past them. A tier at 75% would be a tier nobody ever reaches, which
-   is how the first version of this went wrong.
-   Only two squares have been measured against the map so far. When the rest
-   have been, look at the spread again before trusting these. */
+   Hasselt carries 499.9 km of road and 78.7 km of it has been driven, which
+   is 15.7% and is the best square there is. Across twenty-one squares
+   measured against the map the shares run: lowest 0.2%, quarter-way 2.6%,
+   half-way 3.4%, three-quarters 7.3%, highest 15.7%. So the ladder puts
+   most squares on the first rung, the well-driven ones on the second, the
+   best few on the third, and leaves the fourth to be earned. A tier at 75%
+   would be one nobody ever reaches, which is how the first version of this
+   went wrong. */
 const REGION_PCT_TIERS=[[2,'Been through'],[6,'Driven a fair bit'],
   [12,'Driven a lot'],[20,'Driven a great deal']];
 let regionCache=null;
@@ -1757,42 +1758,62 @@ function regionPct(r){
    Overpass reports a timeout two different ways. Usually it is an HTTP status,
    but under load it answers 200 with no elements and a "remark" explaining
    itself, which would otherwise read as a square holding no road at all. */
-/* A square normally answers in under two seconds. Ninety was the server-side
-   allowance and there was no client-side one at all, so a single heavy square
-   could sit through three mirrors at ninety seconds each with the screen
-   frozen on its name. Twenty seconds is far past a healthy answer and short
-   enough that a bad square costs a minute rather than five. */
-const OVERPASS_WAIT=20000;
+/* A square normally answers in about two seconds, but asking thirty-three
+   times in a row does not take thirty-three times as long: the public servers
+   start queueing you, and once they do every answer takes twenty to thirty
+   seconds and the slowest fall off the end of the deadline. Measured here,
+   one square at a time, answers went from 2 s to 20-30 s by the fourth
+   request and squares began timing out.
+
+   Overpass will take several bounding boxes in one query and label each
+   answer, so the whole thing can be asked in a handful of requests instead of
+   thirty-three. That is the difference between being throttled and not.
+
+   Which squares failed looked like it depended on their names, and it did,
+   but only by accident: unnamed squares are the least-driven ones, so they
+   sort last, so they were asked when the throttling was worst. */
+const OVERPASS_BATCH=6;
+const OVERPASS_WAIT=20000;          // one square
+const OVERPASS_WAIT_EACH=9000;      // and per extra square in a batch
 function fetchFor(url,ms){
   if(typeof AbortController==='undefined')return fetch(url);
   const ac=new AbortController();
   const t=setTimeout(()=>ac.abort(),ms);
   return fetch(url,{signal:ac.signal}).finally(()=>clearTimeout(t));
 }
-async function overpassRoadM(box){
-  const q='[out:json][timeout:25];way["highway"~"^('+OVERPASS_ROADS+')$"]('+
-    box.map(x=>x.toFixed(5)).join(',')+');make stat total=sum(length());out;';
+/* Returns a Map of key -> metres for whatever came back, or {err} for a batch
+   that could not be asked at all. A key missing from the answer is left out,
+   so it stays unasked rather than being written down as having no roads. */
+async function overpassBatch(keys){
+  let q='[out:json][timeout:180];';
+  keys.forEach(k=>{
+    q+='way["highway"~"^('+OVERPASS_ROADS+')$"]('+
+      regionBox(k).map(x=>x.toFixed(5)).join(',')+');'+
+      'make stat key="'+k+'",total=sum(length());out;';
+  });
+  const wait=OVERPASS_WAIT+OVERPASS_WAIT_EACH*(keys.length-1);
   let last='no answer';
   for(const host of OVERPASS_MIRRORS){
     try{
-      const res=await fetchFor(host+'?data='+encodeURIComponent(q),OVERPASS_WAIT);
-      if(!res.ok){
-        last='HTTP '+res.status+(res.statusText?' '+res.statusText:'');
-        continue;
-      }
+      const res=await fetchFor(host+'?data='+encodeURIComponent(q),wait);
+      if(!res.ok){last='HTTP '+res.status+(res.statusText?' '+res.statusText:'');continue}
       const j=await res.json();
-      const el=(j.elements||[])[0];
-      if(!el&&j.remark){
-        last=String(j.remark).replace(/\s+/g,' ').trim().slice(0,60);
-        continue;
+      const els=j.elements||[];
+      if(!els.length&&j.remark){
+        last=String(j.remark).replace(/\s+/g,' ').trim().slice(0,60);continue;
       }
-      const m=el&&el.tags?Number(el.tags.total):0;
-      if(isFinite(m))return {m};
-      last='unreadable answer';
+      const out=new Map();
+      els.forEach(e=>{
+        const t=e&&e.tags;
+        if(!t||!t.key)return;
+        const m=Number(t.total);
+        if(isFinite(m))out.set(t.key,m);
+      });
+      if(out.size)return {got:out};
+      last='no squares in the answer';
     }catch(e){
-      /* a thrown fetch is the network or our own deadline, not the server */
       last=(e&&e.name==='AbortError')
-        ?'no answer in '+Math.round(OVERPASS_WAIT/1000)+' s'
+        ?'no answer in '+Math.round(wait/1000)+' s'
         :((e&&e.message)?String(e.message).slice(0,60):'no connection');
     }
   }
@@ -1808,52 +1829,64 @@ async function fetchRegionRoads(){
   const rs=regions();
   if(!rs.length)return toast('Drive somewhere first.');
   settings.regionRoad=settings.regionRoad||{};
-  const todo=rs.filter(r=>settings.regionRoad[r.key]===undefined);
-  const box=$('roadsProg'), btn=$('btnRoads');
+  const todo=rs.filter(r=>settings.regionRoad[r.key]===undefined).map(r=>r.key);
+  const box=$('roadsProg'), btn=$('btnRoads'), stop=$('btnRoadsStop');
   if(!todo.length){
     if(box){box.classList.add('on');box.innerHTML=progBar(1,1,'Every square is measured.')}
     return;
   }
   if(btn)btn.disabled=true;
-  const stop=$('btnRoadsStop');
   if(stop)stop.style.display='';
   roadsStop=false;
   if(box)box.classList.add('on');
-  let ok=0,miss=0;
+  let ok=0,miss=0,waited=0;
   const errs=new Map();
-  for(let i=0;i<todo.length;i++){
-    if(roadsStop)break;
-    const r=todo[i];
-    /* the label counts the seconds it has been waiting, so a slow square
-       looks slow rather than looking frozen */
-    let waited=0;
-    const paint=()=>{if(box)box.innerHTML=progBar(i,todo.length,
-      'Measuring '+(i+1)+' of '+todo.length+' · '+regionName(r)+
-      (waited>2?' · '+waited+' s':'')+
-      (miss?' · '+miss+' failed':''))};
-    paint();
-    const tick=setInterval(()=>{waited++;paint()},1000);
-    const res=await overpassRoadM(regionBox(r.key));
+  const paint=(from,n)=>{if(box)box.innerHTML=progBar(ok+miss,todo.length,
+    'Measuring '+(from+1)+(n>1?'–'+(from+n):'')+' of '+todo.length+
+    (waited>2?' · '+waited+' s':'')+
+    (miss?' · '+miss+' failed':''))};
+
+  /* A batch that cannot be asked is split and tried again, so one awkward
+     square cannot take five good ones down with it every time. */
+  const ask=async(keys,from)=>{
+    if(roadsStop)return;
+    waited=0;paint(from,keys.length);
+    const tick=setInterval(()=>{waited++;paint(from,keys.length)},1000);
+    const res=await overpassBatch(keys);
     clearInterval(tick);
-    if(res.err){
-      miss++;                                   // left unset, so it is asked again
-      errs.set(res.err,(errs.get(res.err)||0)+1);
-    }else{
-      settings.regionRoad[r.key]=res.m/1000;ok++;
+    if(res.got){
+      for(const k of keys){
+        if(res.got.has(k)){settings.regionRoad[k]=res.got.get(k)/1000;ok++}
+        else{miss++;errs.set('left out of the answer',
+          (errs.get('left out of the answer')||0)+1)}
+      }
+      regionCache=null;regionNameCache=null;
+      await saveV2(K_SET,settings);
+      return;
     }
-    regionCache=null;regionNameCache=null;
-    await saveV2(K_SET,settings);               // keep what has been answered
-    if(i<todo.length-1)
-      await new Promise(x=>setTimeout(x,1500)); // the public servers ask for restraint
+    if(keys.length>1){                       // split and retry the halves
+      const h=Math.ceil(keys.length/2);
+      await ask(keys.slice(0,h),from);
+      await ask(keys.slice(h),from+h);
+      return;
+    }
+    miss++;errs.set(res.err,(errs.get(res.err)||0)+1);
+  };
+
+  for(let i=0;i<todo.length&&!roadsStop;i+=OVERPASS_BATCH){
+    await ask(todo.slice(i,i+OVERPASS_BATCH),i);
+    if(i+OVERPASS_BATCH<todo.length&&!roadsStop)
+      await new Promise(x=>setTimeout(x,1500));
   }
   if(btn)btn.disabled=false;
   if(stop)stop.style.display='none';
+  regionCache=null;regionNameCache=null;
   render();
   if(box){
     box.classList.add('on');
+    const done=ok+miss;
     const why=[...errs.entries()].sort((a,b)=>b[1]-a[1])
       .map(e=>e[0]+(e[1]>1?' ×'+e[1]:'')).join(' · ');
-    const done=ok+miss;
     box.innerHTML=progBar(ok,todo.length,
       (ok?ok+' of '+todo.length+' measured':'None measured')+
       (roadsStop&&done<todo.length?' · stopped':'')+
