@@ -97,11 +97,30 @@ number the trip meter is already showing — plus whether you filled right up.
 
 It used to ask for the reading on the dash and subtract the previous one. That
 is the wrong question twice over: a six-figure number typed on a forecourt is
-easy to fat-finger, and the thing actually wanted is the distance. The three
-numbers are on one small form rather than a chain of prompts, because a
-mistyped figure in the second of four prompts could not be gone back to, and
-the distance field is prefilled from the drives logged since the last fill —
+easy to fat-finger, and the thing actually wanted is the distance. The
+distance field is prefilled from the drives logged since the last fill —
 usually right, and always a sanity check against the trip meter.
+
+## Forms you can walk away from
+
+`prompt()` is a dialog the operating system owns, and it is thrown away the
+moment you leave the app. Checking in another app what the fuel had cost lost
+everything typed so far, and the five prompts behind the car record lost it
+four questions from the end with no way back.
+
+Fill-ups and the car record are ordinary fields on a sheet now. What you type
+is written down as you type it, so leaving and coming back loses nothing —
+not when the app is backgrounded, and not when a new build reloads the page
+underneath you. The form says "Picking up where you left off" when it restores
+one.
+
+The cross keeps the draft, because the cross is usually a mis-tap. Discard is
+the one that throws it away, and it says so. A form that fails its own check
+on save stays open with everything still in it. Every read and write of the
+draft is wrapped, so a browser refusing storage costs the draft and nothing
+else.
+
+Naming a route and adding a service interval are still prompts.
 
 Leave the distance blank and it falls back to the logged drives. Fills logged
 before this carry a dash reading instead and are still read that way, so no

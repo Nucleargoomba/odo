@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · fill-up form · assets v34';
+const BUILD='2026-09-18 · forms, not prompts · assets v35';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1056,17 +1056,8 @@ function renderCars(){
   box.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{
     settings.activeCar=b.dataset.use;await saveV2(K_SET,settings);render();toast('Active car set.')});
   box.querySelectorAll('[data-svc]').forEach(b=>b.onclick=()=>addService(b.dataset.svc));
-  box.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{
-    const f=$('ffm-'+b.dataset.fill);
-    if(!f)return;
-    f.classList.add('on');
-    const l=$('ffl-'+b.dataset.fill);if(l)l.focus();
-  });
-  box.querySelectorAll('[data-fillcancel]').forEach(b=>b.onclick=()=>{
-    const f=$('ffm-'+b.dataset.fillcancel);if(f)f.classList.remove('on');
-  });
-  box.querySelectorAll('[data-fillsave]').forEach(b=>
-    b.onclick=()=>saveFill(b.dataset.fillsave));
+  box.querySelectorAll('[data-fill]').forEach(b=>
+    b.onclick=()=>openFillForm(b.dataset.fill));
   box.querySelectorAll('[data-delfill]').forEach(b=>b.onclick=()=>{
     const [cid,fid]=b.dataset.delfill.split('|');
     if(confirm('Delete this fill-up?'))delFill(cid,fid);
@@ -1084,33 +1075,6 @@ function renderCars(){
     const [cid,sid]=b.dataset.delsvc.split('|');
     const c=cars.find(x=>x.id===cid);
     c.services=c.services.filter(x=>x.id!==sid);await saveV2(K_CAR,cars);render()});
-}
-async function editCar(id){
-  const c=id?cars.find(x=>x.id===id):null;
-  const name=prompt('Car name',c?c.name:'');
-  if(name===null||!name.trim())return;
-  const odo=prompt('Current odometer reading in km (the real one on the dash)',c?c.odoStart:'0');
-  if(odo===null)return;
-  const year=prompt('Year the car was built — an older car earns '+
-    Math.round(AGE_PCT*100)+'% more xp per year of age (blank to skip)',
-    c&&c.year?c.year:'');
-  if(year===null)return;
-  const yr=Math.round(Number(year));
-  const yrOk=year!==''&&isFinite(yr)&&yr>=1900&&yr<=new Date().getFullYear()+1;
-  if(year!==''&&!yrOk)toast('That year looks wrong, so no age bonus was set.');
-  const l100=prompt('Average fuel use, litres per 100 km (blank to skip)',c&&c.l100?c.l100:'');
-  const price=prompt('Fuel price per litre in € (blank to skip)',c&&c.price?c.price:'');
-  const rec={
-    id:c?c.id:'c'+Date.now(),name:name.trim().slice(0,30),
-    odoStart:Number(odo)||0,
-    l100:l100?Number(l100)||null:null,
-    price:price?Number(price)||null:null,
-    year:yrOk?yr:null,
-    services:c?c.services||[]:[]
-  };
-  if(c)Object.assign(c,rec); else cars.push(rec);
-  if(!settings.activeCar){settings.activeCar=rec.id;await saveV2(K_SET,settings)}
-  await saveV2(K_CAR,cars);render();toast('Saved.');
 }
 const SERVICE_PRESETS=[['Oil change',8000],['Oil filter',8000],['Air filter',20000],
   ['Cabin filter',20000],['Spark plugs',40000],['Brake fluid',40000],['Tyres',30000],
@@ -1423,6 +1387,17 @@ $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
 $('btnName').onclick=()=>nameFogPlaces();
 $('btnNameStop').onclick=()=>{namingStop=true;toast('Stopping…')};
+$('fmCancel').onclick=()=>closeForm();
+$('fmClose').onclick=()=>closeForm(true);      // a mis-tap keeps the draft
+$('fmSave').onclick=async()=>{
+  if(!formSpec)return;
+  const spec=formSpec, vals=formValues();
+  const err=spec.onSave?await spec.onSave(vals):null;
+  if(err)return toast(err);          // stays open, draft intact
+  clearDraft(spec.id);
+  $('formSheet').classList.remove('on');
+  formSpec=null;
+};
 $('btnRoads').onclick=()=>fetchRegionRoads();
 $('btnRoadsStop').onclick=()=>{roadsStop=true;toast('Stopping after this square…')};
 $('btnFog').onclick=async()=>{
@@ -4581,17 +4556,6 @@ function fuelStats(car){
     last:t[t.length-1],trend:t.length>=4
       ? (median(l100.slice(-3))-median(l100.slice(0,3))) : null};
 }
-/* ---------- logging a fill-up ----------
-   It used to ask for the reading on the dash and subtract the last one. That
-   is the wrong question twice over: a six-figure number typed on a forecourt
-   is easy to fat-finger, and the thing actually wanted is the distance, which
-   the trip meter is already showing. So it asks for the distance.
-
-   The three numbers are on screen together rather than in a chain of prompts,
-   because a mistyped figure in the second of four prompts could not be gone
-   back to. The distance field is prefilled from the drives logged since the
-   last fill, which is usually right and always a sanity check against the
-   trip meter. */
 function kmSinceFill(car){
   const fills=(car.fills||[]).slice().sort((a,b)=>a.ts-b.ts);
   const last=fills[fills.length-1];
@@ -4600,51 +4564,148 @@ function kmSinceFill(car){
     .reduce((a,x)=>a+x.dist,0));
   return d>0.5?d:null;
 }
-function fillForm(car){
-  const first=!(car.fills||[]).length;
-  const sug=kmSinceFill(car);
-  return '<div class="ffm" id="ffm-'+car.id+'">'+
-    '<div class="ffm-grid">'+
-      '<label>Litres<input type="number" inputmode="decimal" step="0.01" '+
-        'min="0" id="ffl-'+car.id+'" placeholder="0.00"></label>'+
-      '<label>Cost €<input type="number" inputmode="decimal" step="0.01" '+
-        'min="0" id="ffc-'+car.id+'" placeholder="optional"></label>'+
-      (first?'':'<label class="ffm-wide">Kilometres since the last fill-up'+
-        '<input type="number" inputmode="decimal" step="0.1" min="0" id="ffk-'+
-        car.id+'" placeholder="'+(sug?sug.toFixed(1)+' from your drives':
-        'leave blank to use your drives')+'"></label>')+
-    '</div>'+
-    '<label class="ffm-chk"><input type="checkbox" id="fff-'+car.id+
-      '" checked> Filled it right up</label>'+
-    '<div class="row"><button class="ghost key" data-fillsave="'+car.id+
-      '">Save fill-up</button><button class="ghost" data-fillcancel="'+car.id+
-      '">Cancel</button></div>'+
-    (first?'<div class="c-meta">The first fill-up is the baseline. The next one '+
-      'gives you a consumption figure.</div>':'')+
-    '</div>';
+/* ---------- a form you can walk away from ----------
+   prompt() is a dialog the operating system owns, and it is thrown away the
+   moment you leave the app. Looking up what the fuel cost in another app lost
+   everything typed so far, and a chain of five prompts lost it four questions
+   from the end with no way back.
+
+   These are ordinary fields on the page. What is typed is written down as it
+   is typed, so leaving and coming back loses nothing — not when the app is
+   backgrounded, and not when a new build reloads the page underneath you.
+   The draft is cleared when the form is saved or discarded, never on its own.
+
+   The cross keeps the draft, because the cross is usually a mis-tap; Discard
+   is the one that throws it away, and it says so. */
+let formSpec=null;
+function draftKey(id){return 'odo.draft.'+id}
+function readDraft(id){
+  try{const v=localStorage.getItem(draftKey(id));return v?JSON.parse(v):null}
+  catch(e){return null}
 }
-async function saveFill(cid){
+function writeDraft(id,vals){
+  try{localStorage.setItem(draftKey(id),JSON.stringify(vals))}catch(e){}
+}
+function clearDraft(id){try{localStorage.removeItem(draftKey(id))}catch(e){}}
+function formValues(){
+  const out={};
+  ((formSpec&&formSpec.fields)||[]).forEach(f=>{
+    const el=$('fm_'+f.k);
+    if(!el)return;
+    out[f.k]=f.type==='check'?!!el.checked:el.value;
+  });
+  return out;
+}
+function openForm(spec){
+  formSpec=spec;
+  const d=readDraft(spec.id)||{};
+  const resumed=Object.keys(d).length>0;
+  $('fmTitle').textContent=spec.title;
+  $('fmBody').innerHTML=
+    (spec.note?'<div class="c-meta fm-note">'+esc(spec.note)+'</div>':'')+
+    '<div class="fm-grid">'+spec.fields.map(f=>{
+      const v=(d[f.k]!==undefined?d[f.k]:f.value);
+      if(f.type==='check')
+        return '<label class="fm-chk'+(f.wide?' fm-wide':'')+'">'+
+          '<input type="checkbox" id="fm_'+f.k+'"'+(v?' checked':'')+'> '+
+          esc(f.label)+'</label>';
+      return '<label'+(f.wide?' class="fm-wide"':'')+'>'+esc(f.label)+
+        '<input id="fm_'+f.k+'" type="'+(f.type==='number'?'number':'text')+'"'+
+        (f.type==='number'?' inputmode="decimal" step="any"':'')+
+        ' value="'+esc(v==null?'':String(v))+'"'+
+        (f.placeholder?' placeholder="'+esc(f.placeholder)+'"':'')+'>'+
+        (f.hint?'<s>'+esc(f.hint)+'</s>':'')+'</label>';
+    }).join('')+'</div>';
+  $('fmSave').textContent=spec.save||'Save';
+  $('formSheet').classList.add('on');
+  $('fmBody').oninput=()=>writeDraft(spec.id,formValues());
+  const first=$('fm_'+spec.fields[0].k);
+  if(first&&first.type!=='checkbox')setTimeout(()=>{try{first.focus()}catch(e){}},60);
+  if(resumed)toast('Picking up where you left off.');
+}
+function closeForm(keep){
+  if(formSpec&&!keep)clearDraft(formSpec.id);
+  $('formSheet').classList.remove('on');
+  formSpec=null;
+}
+/* ---------- the two forms that used to be chains of prompts ---------- */
+function openFillForm(cid){
   const car=cars.find(x=>x.id===cid);
   if(!car)return;
-  const el=k=>$(k+'-'+cid);
-  const litres=Number((el('ffl')||{}).value);
-  if(!(litres>0))return toast('How many litres went in?');
-  const costV=(el('ffc')||{}).value, kmV=(el('ffk')||{}).value;
-  const cost=costV?(Number(costV)||null):null;
-  const dist=kmV?(Number(kmV)||null):null;
-  const fullEl=el('fff');
-  car.fills=car.fills||[];
-  car.fills.push({id:'f'+Date.now(),ts:Date.now(),litres,
-    cost:(cost&&cost>0)?cost:null,
-    km:(dist&&dist>0)?dist:null,
-    full:fullEl?!!fullEl.checked:true});
-  await saveV2(K_CAR,cars);
-  render();
-  const t=tanks(car);
-  if(t.length){
-    const last=t[t.length-1];
-    toast(last.l100.toFixed(1)+' L/100 km over the last '+Math.round(last.km)+' km.');
-  }else toast('Logged. The next fill-up gives you a consumption figure.');
+  const first=!(car.fills||[]).length;
+  const sug=kmSinceFill(car);
+  const fields=[
+    {k:'litres',label:'Litres',type:'number',placeholder:'0.00'},
+    {k:'cost',label:'Cost €',type:'number',placeholder:'optional'}
+  ];
+  if(!first)fields.push({k:'km',label:'Kilometres since the last fill-up',
+    type:'number',wide:true,
+    placeholder:sug?sug.toFixed(1)+' from your drives'
+      :'blank to use your drives'});
+  fields.push({k:'full',label:'Filled it right up',type:'check',value:true,wide:true});
+  openForm({
+    id:'fill.'+cid, title:'Fill-up', save:'Save fill-up', fields,
+    note:first?'The first fill-up is the baseline. The next one gives you a '+
+      'consumption figure.':null,
+    onSave:async v=>{
+      const litres=Number(v.litres);
+      if(!(litres>0))return 'How many litres went in?';
+      const cost=v.cost?Number(v.cost)||null:null;
+      const dist=v.km?Number(v.km)||null:null;
+      car.fills=car.fills||[];
+      car.fills.push({id:'f'+Date.now(),ts:Date.now(),litres,
+        cost:(cost&&cost>0)?cost:null,
+        km:(dist&&dist>0)?dist:null,
+        full:!!v.full});
+      await saveV2(K_CAR,cars);
+      render();
+      const t=tanks(car);
+      if(t.length){
+        const last=t[t.length-1];
+        toast(last.l100.toFixed(1)+' L/100 km over the last '+Math.round(last.km)+' km.');
+      }else toast('Logged. The next fill-up gives you a consumption figure.');
+      return null;
+    }});
+}
+function editCar(id){
+  const c=id?cars.find(x=>x.id===id):null;
+  openForm({
+    id:'car.'+(id||'new'),
+    title:c?'Edit '+c.name:'Add a car',
+    save:c?'Save car':'Add car',
+    fields:[
+      {k:'name',label:'Car name',type:'text',value:c?c.name:'',wide:true},
+      {k:'odo',label:'Odometer now, km',type:'number',value:c?c.odoStart:0,
+       hint:'the real one on the dash'},
+      {k:'year',label:'Year built',type:'number',value:c&&c.year?c.year:'',
+       hint:'1% more xp per year of age'},
+      {k:'l100',label:'Average L/100 km',type:'number',value:c&&c.l100?c.l100:'',
+       hint:'optional, until two fill-ups measure it'},
+      {k:'price',label:'Fuel price €/L',type:'number',value:c&&c.price?c.price:'',
+       hint:'optional, until a fill-up says otherwise'}
+    ],
+    onSave:async v=>{
+      const name=String(v.name||'').trim();
+      if(!name)return 'What is the car called?';
+      const typed=String(v.year==null?'':v.year).trim();
+      const yr=Math.round(Number(typed));
+      const yrOk=typed!==''&&isFinite(yr)&&yr>=1900&&yr<=new Date().getFullYear()+1;
+      if(typed!==''&&!yrOk)return 'That year looks wrong — 1900 to now.';
+      const rec={
+        id:c?c.id:'c'+Date.now(), name:name.slice(0,30),
+        odoStart:Number(v.odo)||0,
+        l100:v.l100?Number(v.l100)||null:null,
+        price:v.price?Number(v.price)||null:null,
+        year:yrOk?yr:null,
+        services:c?c.services||[]:[]
+      };
+      if(c)Object.assign(c,rec); else cars.push(rec);
+      if(!settings.activeCar){settings.activeCar=rec.id;await saveV2(K_SET,settings)}
+      await saveV2(K_CAR,cars);
+      render();
+      toast('Saved.');
+      return null;
+    }});
 }
 async function delFill(cid,fid){
   const car=cars.find(x=>x.id===cid);if(!car)return;
@@ -4656,7 +4717,7 @@ function renderFuel(car){
   if(!fills.length)
     return '<div class="fuel"><div class="c-meta">No fill-ups logged. Add two and you get real consumption.</div>'+
       '<div class="row" style="margin-top:8px"><button class="ghost key" data-fill="'+car.id+
-      '">Log a fill-up</button></div>'+fillForm(car)+'</div>';
+      '">Log a fill-up</button></div></div>';
   const t=tanks(car);
   let head='';
   if(st){
@@ -4682,7 +4743,7 @@ function renderFuel(car){
   }).join('');
   return '<div class="fuel">'+head+rows+
     '<div class="row" style="margin-top:10px"><button class="ghost key" data-fill="'+car.id+
-    '">Log a fill-up</button></div>'+fillForm(car)+
+    '">Log a fill-up</button></div>'+
     (st&&st.n?'<div class="c-meta" style="margin-top:8px">'+st.litres.toFixed(0)+
       ' L bought'+(st.spend?', €'+st.spend.toFixed(0)+' spent':'')+
       ' across '+st.n+' full tank'+(st.n>1?'s':'')+'.'+

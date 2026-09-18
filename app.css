@@ -705,17 +705,18 @@ button:disabled{opacity:.5;cursor:default}
   letter-spacing:.16em}
 .lb .gg-dial{letter-spacing:0}
 
-/* ---------- logging a fill-up ---------- */
-.ffm{display:none}
-.ffm.on{display:flex;flex-direction:column;gap:11px;margin-top:11px;
-  padding:13px;border:1px solid var(--line-2);border-radius:10px;background:#0A0906}
-.ffm-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.ffm-wide{grid-column:1/-1}
-.ffm label{display:flex;flex-direction:column;gap:5px;
+/* ---------- a form you can walk away from ---------- */
+.fm-inner{max-height:86vh}
+.fm-note{margin-bottom:12px}
+.fm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fm-wide{grid-column:1/-1}
+.fm-grid label{display:flex;flex-direction:column;gap:5px;
   font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--slate)}
-.ffm input[type=number]{font-size:15px;padding:10px}
-.ffm-chk{flex-direction:row!important;align-items:center;gap:9px;
-  text-transform:none!important;letter-spacing:.04em!important;font-size:12.5px!important;
-  color:var(--chalk)!important;cursor:pointer}
-.ffm-chk input{width:17px;height:17px;accent-color:var(--amber);flex:none;padding:0}
+  text-transform:uppercase;color:var(--slate);min-width:0}
+.fm-grid label s{text-decoration:none;font-size:9px;letter-spacing:.04em;
+  text-transform:none;color:var(--line-2);line-height:1.4}
+.fm-grid input{font-size:16px;padding:11px 10px}
+.fm-chk{flex-direction:row!important;align-items:center;gap:10px;
+  text-transform:none!important;letter-spacing:.04em!important;
+  font-size:13px!important;color:var(--chalk)!important;cursor:pointer}
+.fm-chk input{width:18px;height:18px;accent-color:var(--amber);flex:none;padding:0}
