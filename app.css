@@ -704,3 +704,18 @@ button:disabled{opacity:.5;cursor:default}
 .lb .gg-rank,.lb .gg-mk,.lb .gg-dial{font-family:'IBM Plex Mono',monospace;
   letter-spacing:.16em}
 .lb .gg-dial{letter-spacing:0}
+
+/* ---------- logging a fill-up ---------- */
+.ffm{display:none}
+.ffm.on{display:flex;flex-direction:column;gap:11px;margin-top:11px;
+  padding:13px;border:1px solid var(--line-2);border-radius:10px;background:#0A0906}
+.ffm-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ffm-wide{grid-column:1/-1}
+.ffm label{display:flex;flex-direction:column;gap:5px;
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--slate)}
+.ffm input[type=number]{font-size:15px;padding:10px}
+.ffm-chk{flex-direction:row!important;align-items:center;gap:9px;
+  text-transform:none!important;letter-spacing:.04em!important;font-size:12.5px!important;
+  color:var(--chalk)!important;cursor:pointer}
+.ffm-chk input{width:17px;height:17px;accent-color:var(--amber);flex:none;padding:0}

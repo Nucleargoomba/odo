@@ -92,8 +92,20 @@ opens the heat map with that month's new stretches picked out.
 
 ## Fuel log
 
-Log a fill-up with litres, cost, an optional dash odometer reading, and whether
-you filled right up. A "tank" is the stretch between two fill-ups: the litres
+Log a fill-up with litres, cost, and the kilometres since the last one — the
+number the trip meter is already showing — plus whether you filled right up.
+
+It used to ask for the reading on the dash and subtract the previous one. That
+is the wrong question twice over: a six-figure number typed on a forecourt is
+easy to fat-finger, and the thing actually wanted is the distance. The three
+numbers are on one small form rather than a chain of prompts, because a
+mistyped figure in the second of four prompts could not be gone back to, and
+the distance field is prefilled from the drives logged since the last fill —
+usually right, and always a sanity check against the trip meter.
+
+Leave the distance blank and it falls back to the logged drives. Fills logged
+before this carry a dash reading instead and are still read that way, so no
+history is lost. A "tank" is the stretch between two fill-ups: the litres
 you just put in replaced what you burned since the last one, so litres over
 that distance is real consumption. Partial fills carry forward until the next
 full one.

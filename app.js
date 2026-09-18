@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · level gauge · assets v33';
+const BUILD='2026-09-18 · fill-up form · assets v34';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1056,7 +1056,17 @@ function renderCars(){
   box.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{
     settings.activeCar=b.dataset.use;await saveV2(K_SET,settings);render();toast('Active car set.')});
   box.querySelectorAll('[data-svc]').forEach(b=>b.onclick=()=>addService(b.dataset.svc));
-  box.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>addFill(b.dataset.fill));
+  box.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{
+    const f=$('ffm-'+b.dataset.fill);
+    if(!f)return;
+    f.classList.add('on');
+    const l=$('ffl-'+b.dataset.fill);if(l)l.focus();
+  });
+  box.querySelectorAll('[data-fillcancel]').forEach(b=>b.onclick=()=>{
+    const f=$('ffm-'+b.dataset.fillcancel);if(f)f.classList.remove('on');
+  });
+  box.querySelectorAll('[data-fillsave]').forEach(b=>
+    b.onclick=()=>saveFill(b.dataset.fillsave));
   box.querySelectorAll('[data-delfill]').forEach(b=>b.onclick=()=>{
     const [cid,fid]=b.dataset.delfill.split('|');
     if(confirm('Delete this fill-up?'))delFill(cid,fid);
@@ -4520,9 +4530,11 @@ function heatPeriod(){
    ================================================================ */
 /* A tank is the stretch between two fill-ups. The litres you just put in
    replaced what you burned since the last one, so litres ÷ that distance is
-   real consumption. Distance comes from your odometer readings when you give
-   them (exact, and it catches drives you never recorded) and from logged
-   drives when you don't. Partial fills carry forward until the next full one. */
+   real consumption. Distance is the figure you enter off the trip meter when
+   you fill up — exact, and it catches drives you never recorded — and falls
+   back to the logged drives when you leave it blank. Fills logged before that
+   field existed carry a dash reading instead and are still read that way.
+   Partial fills carry forward until the next full one. */
 function tanks(car){
   const fills=(car.fills||[]).slice().sort((a,b)=>a.ts-b.ts);
   if(fills.length<2)return [];
@@ -4531,7 +4543,9 @@ function tanks(car){
   for(let i=1;i<fills.length;i++){
     const prev=fills[i-1],f=fills[i];
     let dist=null,method='gps';
-    if(f.odo!=null&&prev.odo!=null&&f.odo>prev.odo){dist=f.odo-prev.odo;method='odo'}
+    if(f.km!=null&&f.km>0){dist=f.km;method='trip'}
+    /* fills logged before the trip field existed carry a dash reading */
+    else if(f.odo!=null&&prev.odo!=null&&f.odo>prev.odo){dist=f.odo-prev.odo;method='odo'}
     else{
       dist=km(drives.filter(d=>d.carId===car.id&&d.start>prev.ts&&d.start<=f.ts)
         .reduce((a,d)=>a+d.dist,0));
@@ -4567,17 +4581,63 @@ function fuelStats(car){
     last:t[t.length-1],trend:t.length>=4
       ? (median(l100.slice(-3))-median(l100.slice(0,3))) : null};
 }
-async function addFill(cid){
-  const car=cars.find(x=>x.id===cid);if(!car)return;
-  const litres=prompt('How many litres?','');
-  if(litres===null||!Number(litres))return;
-  const cost=prompt('What did it cost, in €? (blank to skip)','');
-  const odo=prompt('Odometer reading on the dash, in km (blank to use logged drives instead)',
-    String(Math.round(carKm(car))));
-  const full=confirm('Did you fill it right up?\n\nOK = full tank, Cancel = partial fill');
+/* ---------- logging a fill-up ----------
+   It used to ask for the reading on the dash and subtract the last one. That
+   is the wrong question twice over: a six-figure number typed on a forecourt
+   is easy to fat-finger, and the thing actually wanted is the distance, which
+   the trip meter is already showing. So it asks for the distance.
+
+   The three numbers are on screen together rather than in a chain of prompts,
+   because a mistyped figure in the second of four prompts could not be gone
+   back to. The distance field is prefilled from the drives logged since the
+   last fill, which is usually right and always a sanity check against the
+   trip meter. */
+function kmSinceFill(car){
+  const fills=(car.fills||[]).slice().sort((a,b)=>a.ts-b.ts);
+  const last=fills[fills.length-1];
+  if(!last)return null;
+  const d=km(drives.filter(x=>x.carId===car.id&&x.start>last.ts)
+    .reduce((a,x)=>a+x.dist,0));
+  return d>0.5?d:null;
+}
+function fillForm(car){
+  const first=!(car.fills||[]).length;
+  const sug=kmSinceFill(car);
+  return '<div class="ffm" id="ffm-'+car.id+'">'+
+    '<div class="ffm-grid">'+
+      '<label>Litres<input type="number" inputmode="decimal" step="0.01" '+
+        'min="0" id="ffl-'+car.id+'" placeholder="0.00"></label>'+
+      '<label>Cost €<input type="number" inputmode="decimal" step="0.01" '+
+        'min="0" id="ffc-'+car.id+'" placeholder="optional"></label>'+
+      (first?'':'<label class="ffm-wide">Kilometres since the last fill-up'+
+        '<input type="number" inputmode="decimal" step="0.1" min="0" id="ffk-'+
+        car.id+'" placeholder="'+(sug?sug.toFixed(1)+' from your drives':
+        'leave blank to use your drives')+'"></label>')+
+    '</div>'+
+    '<label class="ffm-chk"><input type="checkbox" id="fff-'+car.id+
+      '" checked> Filled it right up</label>'+
+    '<div class="row"><button class="ghost key" data-fillsave="'+car.id+
+      '">Save fill-up</button><button class="ghost" data-fillcancel="'+car.id+
+      '">Cancel</button></div>'+
+    (first?'<div class="c-meta">The first fill-up is the baseline. The next one '+
+      'gives you a consumption figure.</div>':'')+
+    '</div>';
+}
+async function saveFill(cid){
+  const car=cars.find(x=>x.id===cid);
+  if(!car)return;
+  const el=k=>$(k+'-'+cid);
+  const litres=Number((el('ffl')||{}).value);
+  if(!(litres>0))return toast('How many litres went in?');
+  const costV=(el('ffc')||{}).value, kmV=(el('ffk')||{}).value;
+  const cost=costV?(Number(costV)||null):null;
+  const dist=kmV?(Number(kmV)||null):null;
+  const fullEl=el('fff');
   car.fills=car.fills||[];
-  car.fills.push({id:'f'+Date.now(),ts:Date.now(),litres:Number(litres),
-    cost:cost?Number(cost)||null:null, odo:odo?Number(odo)||null:null, full});
+  car.fills.push({id:'f'+Date.now(),ts:Date.now(),litres,
+    cost:(cost&&cost>0)?cost:null,
+    km:(dist&&dist>0)?dist:null,
+    full:fullEl?!!fullEl.checked:true});
   await saveV2(K_CAR,cars);
   render();
   const t=tanks(car);
@@ -4596,7 +4656,7 @@ function renderFuel(car){
   if(!fills.length)
     return '<div class="fuel"><div class="c-meta">No fill-ups logged. Add two and you get real consumption.</div>'+
       '<div class="row" style="margin-top:8px"><button class="ghost key" data-fill="'+car.id+
-      '">Log a fill-up</button></div></div>';
+      '">Log a fill-up</button></div>'+fillForm(car)+'</div>';
   const t=tanks(car);
   let head='';
   if(st){
@@ -4613,7 +4673,8 @@ function renderFuel(car){
     return '<div class="fill"><div><div class="fill-d">'+
       new Date(f.ts).toLocaleDateString(undefined,{day:'numeric',month:'short'})+
       (f.full===false?' · partial':'')+
-      (tk?(tk.method==='odo'?' · from odometer':' · from logged drives'):'')+'</div>'+
+      (tk?(tk.method==='trip'?' · as entered'
+        :tk.method==='odo'?' · from odometer':' · from logged drives'):'')+'</div>'+
       '<div class="fill-s">'+f.litres.toFixed(1)+' L'+(f.cost?' · €'+f.cost.toFixed(2):'')+
       (f.cost&&f.litres?' · €'+(f.cost/f.litres).toFixed(3)+'/L':'')+'</div></div>'+
       '<div class="fill-v">'+(tk?tk.l100.toFixed(1)+'<s>L/100</s>':'<s>baseline</s>')+'</div>'+
@@ -4621,13 +4682,13 @@ function renderFuel(car){
   }).join('');
   return '<div class="fuel">'+head+rows+
     '<div class="row" style="margin-top:10px"><button class="ghost key" data-fill="'+car.id+
-    '">Log a fill-up</button></div>'+
+    '">Log a fill-up</button></div>'+fillForm(car)+
     (st&&st.n?'<div class="c-meta" style="margin-top:8px">'+st.litres.toFixed(0)+
       ' L bought'+(st.spend?', €'+st.spend.toFixed(0)+' spent':'')+
       ' across '+st.n+' full tank'+(st.n>1?'s':'')+'.'+
       (t.some(x=>x.method==='gps')
         ? ' Tanks measured from logged drives only count kilometres the app recorded — '+
-          'enter the dash odometer each time for exact figures.':'')+
+          'read the trip meter into the fill-up for exact figures.':'')+
       '</div>':'')+'</div>';
 }
 
