@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · level badge · assets v31';
+const BUILD='2026-09-18 · level plate · assets v32';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -865,7 +865,7 @@ function render(){
   $('xpNext').textContent=(nxt-totXp).toLocaleString()+' xp to level '+(lvl+1);
   $('xpFill').style.width=Math.max(2,Math.min(100,(totXp-base)/(nxt-base)*100))+'%';
   const lb=$('lvlBadge');
-  if(lb)lb.innerHTML=levelBadge(lvl,78);
+  if(lb)lb.innerHTML=levelBadge(lvl,300);
   const pips=$('rankPips');
   if(pips)pips.innerHTML=Array.from({length:ri.tiers},(_,i)=>
     '<i class="'+(i<ri.tier?'on':'')+'"></i>').join('')+
@@ -4645,54 +4645,85 @@ const RANKS2=[
   {lvl:60,name:'Cartographer', col:'#9B5CD6'},
   {lvl:80,name:'Legend',       col:'#F2ECDC'}
 ];
-/* ============ the level badge ============
-   A level was a number, and a number is the same shape at 3 as at 300. The
-   badge is drawn from the level itself, so it changes every single time you
-   gain one and never runs out of ways to change:
+/* ============ the level plate ============
+   A manufacturer's plate, the kind riveted to a door pillar: the level
+   stamped into metal rather than printed as a number. It is generated from
+   the level, so it changes every time one is gained and never runs out:
 
-     every level      one more pip, up to four
-     every 5 levels   the pips become a bar, up to four bars
-     every 25 levels  a ring is added and the marks start again
+     every level      one more punch mark, up to four
+     every 5 levels   the marks become a bar, up to four bars
+     every 25 levels  the mark of the plate advances — MK I, MK II, MK III
 
-   Four bars and four pips fill a band of twenty-five exactly, so a band is
-   always readable at a glance and a new ring reads as a promotion rather than
-   as clutter. Rings stack to six and then begin again on a new colour, which
-   is what keeps it going for ever: there is no last badge to reach. */
-const BADGE_BAND=25, BADGE_RINGS=6;
+   Four bars and four punches fill a band of twenty-five exactly, so a band
+   reads at a glance. The mark is a Roman numeral and Roman numerals do not
+   run out, which is what keeps this going for ever: there is no last plate.
+
+   The metal ages with the mark. Each one adds a line engraved inside the
+   edge, up to three, and deepens the patina, so an old plate reads as an old
+   plate across the room and a new one reads as freshly stamped. */
+const BADGE_BAND=25;
 function levelMarks(lvl){
   const n=Math.max(1,Math.floor(lvl))-1;
   const era=Math.floor(n/BADGE_BAND);            // 0,1,2...
   const within=n%BADGE_BAND;                     // 0..24
-  return {era,rings:(era%BADGE_RINGS)+1,cycle:Math.floor(era/BADGE_RINGS),
-          bars:Math.floor(within/5),pips:within%5};
+  return {era,mk:era+1,bars:Math.floor(within/5),pips:within%5};
 }
-function levelBadge(lvl,size){
+function levelBadge(lvl,width){
   const m=levelMarks(lvl), ri=rankInfo(lvl), col=ri.col;
-  const S=size||78;
-  const row=(k,y,draw)=>{
-    let s='';
-    for(let i=0;i<k;i++)s+=draw(50+(i-(k-1)/2)*11,y);
-    return s;
-  };
-  let g='';
-  /* the glow deepens with every ring, so a high badge reads hotter */
-  g+='<circle cx="50" cy="50" r="47" fill="'+col+'" opacity="'+
-    (0.05+0.022*m.rings).toFixed(3)+'"/>';
-  g+='<circle cx="50" cy="50" r="46" fill="#0A0906" stroke="'+col+
-    '" stroke-width="2.5"/>';
-  for(let i=1;i<m.rings;i++)
-    g+='<circle cx="50" cy="50" r="'+(46-i*4.5).toFixed(1)+'" fill="none" stroke="'+
-      col+'" stroke-width="1.2" opacity="'+(0.85-i*0.09).toFixed(2)+'"/>';
-  g+=row(m.pips,30,(x,y)=>'<circle cx="'+x.toFixed(1)+'" cy="'+y+
-    '" r="3.1" fill="'+col+'"/>');
-  g+=row(m.bars,70,(x,y)=>'<rect x="'+(x-5.5).toFixed(1)+'" y="'+(y-2)+
-    '" width="11" height="4" rx="1.4" fill="'+col+'"/>');
+  const W=width||260, H=Math.round(W*0.54);
   const n=Math.max(1,Math.floor(lvl));
-  const fs=n<100?31:n<1000?25:20;
-  g+='<text x="50" y="50" text-anchor="middle" dominant-baseline="central" '+
-    'class="lb-n" font-size="'+fs+'" fill="'+col+'">'+n+'</text>';
-  return '<svg class="lb" viewBox="0 0 100 100" width="'+S+'" height="'+S+
-    '" role="img" aria-label="Level '+n+'">'+g+'</svg>';
+  const id='pl'+n+'x'+Math.round(W);
+  const age=Math.min(1,m.era/8);                 // patina, settling by MK IX
+  const lines=Math.min(3,m.era);                 // engraved lines inside the edge
+  const rivet=(x,y)=>'<circle cx="'+x+'" cy="'+y+'" r="3.4" fill="#0A0906" '+
+    'stroke="'+col+'" stroke-width="1" opacity=".55"/>'+
+    '<circle cx="'+(x-0.9)+'" cy="'+(y-0.9)+'" r="1.2" fill="'+col+'" opacity=".35"/>';
+  let g='<defs><linearGradient id="'+id+'" x1="0" y1="0" x2="0" y2="1">'+
+    '<stop offset="0" stop-color="#232018"/><stop offset="1" stop-color="#100E0A"/>'+
+    '</linearGradient></defs>';
+  g+='<rect x="2" y="2" width="196" height="104" rx="7" fill="url(#'+id+')" '+
+    'stroke="'+col+'" stroke-width="1.6" opacity=".95"/>';
+  /* the patina: the rank colour soaked into the metal as the marks pile up */
+  g+='<rect x="2" y="2" width="196" height="104" rx="7" fill="'+col+
+    '" opacity="'+(0.03+0.05*age).toFixed(3)+'"/>';
+  for(let i=1;i<=lines;i++)
+    g+='<rect x="'+(2+i*3.5)+'" y="'+(2+i*3.5)+'" width="'+(196-i*7)+'" height="'+
+      (104-i*7)+'" rx="'+(7-i)+'" fill="none" stroke="'+col+
+      '" stroke-width=".7" opacity="'+(0.30-i*0.06).toFixed(2)+'"/>';
+  g+=rivet(17,17)+rivet(183,17)+rivet(17,91)+rivet(183,91);
+  /* stamped header, and the mark of the plate */
+  g+='<text class="pl-t" x="31" y="23" font-size="8">ODO · BUILT</text>';
+  g+='<text class="pl-t pl-mk" x="169" y="23" font-size="8" text-anchor="end" fill="'+
+    col+'">MK '+romanOf(m.mk)+'</text>';
+  g+='<line x1="31" y1="30" x2="169" y2="30" stroke="'+col+
+    '" stroke-width=".8" opacity=".3"/>';
+  /* the number, struck into a recess */
+  g+='<text class="pl-t" x="31" y="45" font-size="7.5">LEVEL</text>';
+  const fs=n<100?30:n<1000?24:19;
+  g+='<rect x="29" y="50" width="'+(n<100?46:n<1000?58:70)+'" height="34" rx="3" '+
+    'fill="#0A0906" stroke="'+col+'" stroke-width=".9" opacity=".9"/>';
+  g+='<text class="pl-n" x="'+(29+(n<100?23:n<1000?29:35))+'" y="67.5" '+
+    'text-anchor="middle" dominant-baseline="central" font-size="'+fs+'" fill="'+
+    col+'">'+n+'</text>';
+  /* rank, tier and the punch marks */
+  g+='<text class="pl-t pl-rank" x="169" y="48" font-size="9.5" text-anchor="end">'+
+    esc(ri.name.toUpperCase())+'</text>';
+  g+='<text class="pl-t" x="169" y="60" font-size="7.5" text-anchor="end">TIER '+
+    ri.roman+'</text>';
+  let mx=169;
+  for(let i=0;i<m.pips;i++){
+    g+='<circle cx="'+(mx-3).toFixed(1)+'" cy="72" r="2.6" fill="'+col+'"/>';
+    mx-=9;
+  }
+  for(let i=0;i<m.bars;i++){
+    g+='<rect x="'+(mx-13).toFixed(1)+'" y="69.4" width="13" height="5.2" rx="1.6" '+
+      'fill="'+col+'"/>';
+    mx-=17;
+  }
+  g+='<text class="pl-t" x="169" y="90" font-size="6.5" text-anchor="end" '+
+    'opacity=".55">NO. '+String(n).padStart(4,'0')+'</text>';
+  return '<svg class="lb" viewBox="0 0 200 108" width="'+W+'" height="'+H+
+    '" role="img" aria-label="Level '+n+', '+esc(ri.name)+'">'+g+'</svg>';
 }
 
 /* ---------- ranks that do not stop ----------
@@ -4808,7 +4839,7 @@ function celebrate(level,gained,drive){
   const box=$('levelUp');if(!box)return;
   box.style.setProperty('--rank',r.col);
   const lub=$('luBadge');
-  if(lub)lub.innerHTML=levelBadge(level,132);
+  if(lub)lub.innerHTML=levelBadge(level,320);
   $('luLevel').textContent=level;
   $('luRank').innerHTML=r.name+' <span>'+r.roman+'</span>';
   $('luSub').textContent=r.nextAt

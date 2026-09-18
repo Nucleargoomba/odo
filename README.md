@@ -121,24 +121,28 @@ is otherwise endless. Past the named ranks it carries on in numbered eras of
 twenty levels, Legend II, Legend III and so on, each with its own colour from a
 cycle of nine. There is always a next thing named and a distance to it.
 
-## The level badge
+## The level plate
 
-A level was a number, and a number is the same shape at 3 as at 300. The badge
-is drawn from the level itself, so it changes every time you gain one and never
-runs out of ways to change:
+A level was a number, and a number is the same shape at 3 as at 300. It is a
+manufacturer's plate now, the kind riveted to a door pillar, with the level
+stamped into the metal. It is generated from the level, so it changes every
+time one is gained and never runs out of ways to change:
 
-- every level, one more pip, up to four
-- every 5 levels, the pips become a bar, up to four bars
-- every 25 levels, a ring is added and the marks start again
+- every level, one more punch mark, up to four
+- every 5 levels, the marks become a bar, up to four bars
+- every 25 levels, the mark of the plate advances — MK I, MK II, MK III
 
-Four bars and four pips fill a band of twenty-five exactly, so a band reads at
-a glance and a new ring reads as a promotion rather than as clutter. Rings
-stack to six and then begin again on a new colour, which is what keeps it going
-for ever: there is no last badge to reach. The glow deepens with each ring, so
-a high badge reads hotter across the room.
+Four bars and four punches fill a band of twenty-five exactly, so a band reads
+at a glance. The mark is a Roman numeral and Roman numerals do not run out,
+which is what keeps this going for ever: there is no last plate to reach.
 
-It sits above the xp bar and fills the level-up card. Level 32 is two rings,
-one bar and one pip.
+The metal ages with the mark. Each one adds a line engraved inside the edge, up
+to three, and deepens the patina in the rank's colour, so an old plate reads as
+an old plate across the room and a new one reads as freshly stamped. The plate
+also carries the rank, the tier, and a zero-padded serial.
+
+It sits above the xp bar and fills the level-up card. Level 32 is MK II, one
+bar and one punch, stamped LONG HAULER, TIER III, NO. 0032.
 
 `driveXp()` is now the sum of `xpBreakdown()`, so the itemised list can never
 disagree with the total. The breakdown appears in each drive's sheet, on the
