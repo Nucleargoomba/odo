@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · car picker + fog · assets v19';
+const BUILD='2026-09-18 · fog town names · assets v20';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1306,7 +1306,7 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
@@ -1357,7 +1357,7 @@ function openDrive(id){
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
-    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;roadCache=null;await saveV2(K_DRV,drives);
+    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;roadCache=null;await saveV2(K_DRV,drives);
     $('sheet').classList.remove('on');render();toast('Drive deleted.');
   };
   setTimeout(()=>{
@@ -1409,10 +1409,12 @@ document.querySelectorAll('#heatSel button').forEach(b=>{
 });
 $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
+$('btnName').onclick=()=>nameFogPlaces();
 $('btnFog').onclick=async()=>{
   settings.fog=!settings.fog;
   await saveV2(K_SET,settings);
   $('btnFog').classList.toggle('on',fogOn());
+  $('btnName').style.display=fogOn()?'':'none';
   $('btnAll').onclick();
   toast(fogOn()?'Fog of war on — only roads you have driven.':'Map back on.');
 };
@@ -1420,6 +1422,7 @@ $('btnAll').onclick=()=>{
   if(!drives.length)return toast('No routes to map yet.');
   $('sheetAll').classList.add('on');
   $('btnFog').classList.toggle('on',fogOn());
+  $('btnName').style.display=fogOn()?'':'none';
   const c=coverage();
   $('allInfo').textContent=drives.length+' drives · '+(c.unique*CELL/1000).toFixed(0)+
     ' km of distinct road · roads you repeat burn hotter';
@@ -1466,6 +1469,7 @@ $('btnAll').onclick=()=>{
         segs.push(L.polyline(r,{color:'#6BD08A',weight:4,opacity:.95}));
       });
     }
+    if(fogOn())fogMarkers().forEach(m=>segs.push(m));
     allLayer=L.layerGroup(segs).addTo(allMap);
     allMap.invalidateSize();
     if(all.length)allMap.fitBounds(L.latLngBounds(all).pad(.1));
@@ -1507,6 +1511,95 @@ function showCarPick(id){
     render();showCarPick(id);
     toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
   });
+}
+
+/* ---------- the towns behind the fog ----------
+   With the map taken away the coverage floats in nothing, so the places you
+   drive through are labelled back in. The labels come from your own driving
+   rather than from a label layer: one cluster per 8 km of driven road, named
+   once and remembered. The map then names the places you have been and stays
+   quiet about everywhere else, which is the whole point of the view.
+
+   8 km is about one town. Tighter and a single town answers three times over
+   under three different suburb names; looser and neighbouring towns collapse
+   into whichever happened to be driven first.
+
+   Clusters are built in the order you drove them, so the name attaches to the
+   first place you reached rather than wherever a later drive happened to
+   start, and the count is how often you have been near it. */
+const FOG_CLUSTER=8000;
+const FOG_STEP=20;          // every twentieth point is plenty at this radius
+let fogCache=null;
+function fogClusters(){
+  if(fogCache)return fogCache;
+  const out=[];
+  drives.slice().sort((a,b)=>a.start-b.start).forEach(d=>{
+    const p=d.pts||[];
+    for(let i=0;i<p.length;i+=FOG_STEP){
+      let hit=null;
+      for(const c of out)
+        if(hav(c.lat,c.lng,p[i][0],p[i][1])<FOG_CLUSTER){hit=c;break}
+      if(hit)hit.n++;
+      else out.push({lat:p[i][0],lng:p[i][1],n:1});
+    }
+  });
+  return fogCache=out.sort((a,b)=>b.n-a.n);
+}
+function fogKey(c){return c.lat.toFixed(3)+','+c.lng.toFixed(3)}
+function fogName(c){
+  const v=settings.fogNames&&settings.fogNames[fogKey(c)];
+  return (v&&v!=='Unknown')?v:null;
+}
+/* Two clusters either side of a town both answer with the town. Keep the one
+   you have been near most and drop the rest, so the name appears once. */
+function fogLabelled(){
+  const best=new Map();
+  fogClusters().forEach(c=>{
+    const nm=fogName(c);
+    if(!nm)return;
+    const cur=best.get(nm);
+    if(!cur||c.n>cur.n)best.set(nm,c);
+  });
+  return [...best.entries()].map(([name,c])=>({name,lat:c.lat,lng:c.lng,n:c.n}));
+}
+function fogMarkers(){
+  if(typeof L==='undefined')return [];
+  const ls=fogLabelled();
+  if(!ls.length)return [];
+  const top=Math.max(...ls.map(x=>x.n));
+  return ls.map(x=>L.marker([x.lat,x.lng],{
+    interactive:false,keyboard:false,
+    icon:L.divIcon({className:'fog-label'+(x.n>=top*0.5?' big':''),
+      html:'<span>'+esc(x.name)+'</span>',iconSize:[0,0]})}));
+}
+/* One call per cluster, on request, exactly as nameePlaces() does for route
+   endpoints. zoom=12 asks for the town rather than the street. A miss is
+   stored as Unknown so it is not asked again every time. */
+async function nameFogPlaces(){
+  const cl=fogClusters();
+  if(!cl.length)return toast('Drive somewhere first.');
+  settings.fogNames=settings.fogNames||{};
+  const todo=cl.filter(c=>!settings.fogNames[fogKey(c)]);
+  if(!todo.length)return toast('Every place is already named.');
+  toast('Looking up '+todo.length+' place'+(todo.length>1?'s':'')+
+    ' — about '+Math.ceil(todo.length*1.2)+' s.');
+  let ok=0,bad=0;
+  for(const c of todo){
+    try{
+      const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat='+
+        c.lat+'&lon='+c.lng+'&zoom=12&addressdetails=1');
+      const j=await r.json();
+      const a=j.address||{};
+      const nm=a.city||a.town||a.village||a.municipality||a.county||j.name;
+      if(nm){settings.fogNames[fogKey(c)]=nm;ok++}
+      else{settings.fogNames[fogKey(c)]='Unknown';bad++}
+    }catch(e){bad++}
+    await new Promise(r=>setTimeout(r,1200));
+  }
+  await saveV2(K_SET,settings);
+  toast(ok?'Named '+ok+' place'+(ok>1?'s':'')+(bad?', '+bad+' not found':'')+'.'
+          :'Could not reach the name service — try again in a minute.');
+  $('btnAll').onclick();
 }
 
 /* ---------- fog of war ----------
@@ -1558,7 +1651,7 @@ $('fileIn').onchange=e=>{
         await saveV2(K_CAR,cars);
       }
       if(raw.settings){settings=Object.assign(settings,raw.settings);await saveV2(K_SET,settings)}
-      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;await saveV2(K_DRV,drives);render();
+      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;await saveV2(K_DRV,drives);render();
       toast(add.length+' drives restored.');
     }catch(err){toast("That file isn't an Odo backup.")}
     e.target.value='';
@@ -2180,7 +2273,7 @@ $('gpxIn').onchange=async e=>{
       inc.forEach(d=>{if(!have.has(d.id)&&d.dist>150){drives.push(d);added++}});
     }catch(err){}
   }
-  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;await saveV2(K_DRV,drives);render();
+  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;await saveV2(K_DRV,drives);render();
   toast(added?added+' tracks imported.':'Nothing usable in that file.');
   e.target.value='';
 };

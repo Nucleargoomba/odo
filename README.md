@@ -271,3 +271,16 @@ A toggle on the heat map that takes the map out from under the coverage,
 leaving only the roads you have actually driven. It is the same data seen as a
 different question — the shape of what you know, rather than where you have
 been on a map of somewhere else.
+
+Roads alone float in nothing, so the towns are labelled back in, and from your
+own driving rather than from a label layer. "Name the towns" clusters every
+driven point at 8 km — about one town — and reverse-geocodes one point per
+cluster, one call each, a second apart, the way route endpoints are already
+named. The answers are kept, so it is asked once. On 66 drives that is 29
+lookups, about 35 seconds.
+
+The map then names the places you have been and stays quiet about everywhere
+else. Two clusters either side of a town both answer with the town, so the
+name is shown once, at whichever you have been near most; a place the service
+cannot name is recorded as unknown, stays off the map, and is not asked again.
+Labels are sized by how often you have been there, so home reads loudest.
