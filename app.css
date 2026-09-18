@@ -720,3 +720,27 @@ button:disabled{opacity:.5;cursor:default}
   text-transform:none!important;letter-spacing:.04em!important;
   font-size:13px!important;color:var(--chalk)!important;cursor:pointer}
 .fm-chk input{width:18px;height:18px;accent-color:var(--amber);flex:none;padding:0}
+
+/* ---------- two cars side by side ---------- */
+.cmp-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cmp{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:11px;overflow:hidden;min-width:min-content}
+.cmp>div{background:var(--face);padding:10px 11px}
+.cmp-h{font-family:'Saira Condensed',sans-serif;font-weight:600;font-size:14px;
+  letter-spacing:.06em;text-transform:uppercase;background:var(--face-2)!important;
+  white-space:nowrap}
+.cmp-h s{display:block;text-decoration:none;font-family:'IBM Plex Mono',monospace;
+  font-size:9px;color:var(--slate);letter-spacing:.1em;margin-top:2px}
+.cmp-k{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--slate);display:flex;flex-direction:column;
+  justify-content:center}
+.cmp-k s{text-decoration:none;font-size:8.5px;letter-spacing:.04em;
+  text-transform:none;color:var(--line-2);margin-top:2px}
+.cmp-v{font-family:'IBM Plex Mono',monospace;font-size:14px;
+  font-variant-numeric:tabular-nums;white-space:nowrap;display:flex;
+  flex-direction:column;justify-content:center}
+.cmp-v s{display:block;text-decoration:none;font-size:8.5px;color:var(--slate);
+  letter-spacing:.06em;margin-top:2px}
+.cmp-v.win{color:var(--amber);box-shadow:inset 2px 0 0 var(--amber)}
+.cmp-none,.cmp-est{color:var(--line-2)!important;font-size:10px!important;
+  letter-spacing:.04em}

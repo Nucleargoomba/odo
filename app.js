@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · clean run pays · assets v36';
+const BUILD='2026-09-18 · cars side by side · assets v37';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1024,8 +1024,91 @@ function renderCoverage(totM){
     '×</b> on average. New roads are worth more than new kilometres.';
 }
 
+/* ============ two cars side by side ============
+   The questions you have when you run two cars are which one is thirstier,
+   which one costs more to move, and how much of each you are actually
+   driving. Every one of those numbers already exists per car; they were just
+   never next to each other.
+
+   Only measured figures are compared. An estimate typed into the car record
+   is shown, greyed, and never wins a row — comparing a guess against a
+   measurement and declaring a winner would be worse than saying nothing.
+
+   A row is marked only where lower really is better. Cost and consumption
+   qualify. Xp per 100 km does not: the old car earns more because it is old,
+   which is the point of the bonus and not a virtue of the car. */
+function carStats(c){
+  const ds=drives.filter(d=>d.carId===c.id);
+  const dist=km(ds.reduce((a,d)=>a+d.dist,0));
+  const st=fuelStats(c);
+  const xp=ds.reduce((a,d)=>a+driveXp(d),0);
+  return {
+    car:c, drives:ds.length, km:dist,
+    l100:measuredL100(c), l100est:c.l100||null,
+    per100:(st&&st.perKm!=null)?st.perKm*100:null,
+    spend:st?st.spend:0,
+    xpPer:dist>0?xp/dist*100:null,
+    age:carAgeAt(c,Date.now()),
+    tanks:st?st.n:0
+  };
+}
+/* lower wins, and only when every car in the row has a measured number */
+function bestIn(vals){
+  if(vals.length<2||vals.some(v=>v==null))return -1;
+  let b=0;
+  vals.forEach((v,i)=>{if(v<vals[b])b=i});
+  /* a tie has no winner worth marking */
+  return vals.filter(v=>v===vals[b]).length>1?-1:b;
+}
+function compareHtml(){
+  if(cars.length<2)return '';
+  const S=cars.map(carStats);
+  const cell=(txt,cls)=>'<div class="cmp-v'+(cls?' '+cls:'')+'">'+txt+'</div>';
+  const row=(label,vals,win,note)=>
+    '<div class="cmp-k">'+esc(label)+(note?'<s>'+esc(note)+'</s>':'')+'</div>'+
+    vals.map((v,i)=>cell(v,i===win?'win':'')).join('');
+  const num=(v,f,unit)=>v==null?'<s class="cmp-none">–</s>'
+    :f(v)+(unit?'<s>'+unit+'</s>':'');
+
+  let g='<div class="cmp-k"></div>'+S.map(s=>
+    '<div class="cmp-h">'+esc(s.car.name)+
+    (s.car.year?'<s>'+s.car.year+'</s>':'')+'</div>').join('');
+
+  g+=row('Logged here',S.map(s=>num(s.km,v=>Math.round(v).toLocaleString(),'km')),-1);
+  g+=row('Drives',S.map(s=>String(s.drives)),-1);
+
+  const l=S.map(s=>s.l100);
+  g+=row('Consumption',S.map((s,i)=>
+    s.l100!=null?s.l100.toFixed(1)+'<s>L/100 km</s>'
+    :s.l100est?'<s class="cmp-est">'+s.l100est.toFixed(1)+' est.</s>'
+    :'<s class="cmp-none">needs two fill-ups</s>'),bestIn(l),'measured');
+
+  const p=S.map(s=>s.per100);
+  g+=row('Cost to move',S.map(s=>num(s.per100,v=>'€'+v.toFixed(2),'/100 km')),
+    bestIn(p));
+
+  g+=row('Fuel bought',S.map(s=>s.spend>0?'€'+Math.round(s.spend):
+    '<s class="cmp-none">–</s>'),-1);
+
+  g+=row('Xp earned',S.map(s=>num(s.xpPer,v=>Math.round(v),'/100 km')),-1,
+    'age bonus included');
+
+  g+=row('Age bonus',S.map(s=>s.age?'+'+Math.round(s.age*AGE_PCT*100)+'%<s>'+
+    s.age+' years</s>':'<s class="cmp-none">no year set</s>'),-1);
+
+  const thin=S.filter(s=>s.tanks<1).length;
+  return '<h2>Side by side</h2>'+
+    '<div class="cmp-wrap"><div class="cmp" style="grid-template-columns:'+
+    'minmax(96px,1.2fr) repeat('+S.length+',minmax(84px,1fr))">'+g+'</div></div>'+
+    (thin?'<div class="foot" style="margin-top:8px">'+
+      (thin===S.length?'Neither car has a measured tank yet — two fill-ups each and '+
+        'these fill in.':'One car has no measured tank yet. Two fill-ups and it joins in.')+
+      '</div>':'');
+}
+
 /* ============ garage ============ */
 function renderCars(){
+  {const cmp=$('carCompare');if(cmp)cmp.innerHTML=compareHtml();}
   const box=$('cars');
   if(!cars.length){
     box.innerHTML='<div class="empty">No car yet.<br>Add one to track service intervals and fuel.</div>';

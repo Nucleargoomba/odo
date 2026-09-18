@@ -496,3 +496,21 @@ No tier means a square is finished, because the app has no way to know what
 finished would be.
 
 On 66 drives that is 33 squares touched, the best two past 60 km of road.
+
+## Two cars side by side
+
+The questions you have when you run two cars are which one is thirstier, which
+costs more to move, and how much of each you are actually driving. Every one of
+those numbers already existed per car; they were just never next to each other.
+The Garage shows them in a table as soon as there is a second car, and nothing
+at all while there is one.
+
+Only measured figures are compared. An estimate typed into the car record is
+shown, greyed and labelled, and can never win a row — declaring a winner
+between a guess and a measurement would be worse than saying nothing. A tie
+wins nothing either.
+
+A row is marked only where lower really is better, which is consumption and
+cost to move. Xp per 100 km is reported and never marked: the old car earns
+more because it is old, which is the point of the age bonus and not a virtue of
+the car.
