@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · naming reports itself · assets v29';
+const BUILD='2026-09-18 · every square named · assets v30';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1608,6 +1608,16 @@ function regions(){
    closest keeps the bare name and the others say which side of it they are,
    so every row names somewhere different. */
 let regionNameCache=null;
+/* A square takes the name of the nearest town already looked up for the fog
+   map, which costs nothing because that lookup has happened anyway. Where
+   there is no such town — the fog run was cut short, or the nearest cluster
+   could not be named — the square is looked up on its own centre instead and
+   the answer kept here. Between the two, every square you have driven in gets
+   a name; a grid reference is not something anyone can read. */
+function regionOwnName(key){
+  const v=settings.regionNames&&settings.regionNames[key];
+  return (v&&v!=='Unknown')?v:null;
+}
 function regionNameMap(){
   if(regionNameCache)return regionNameCache;
   const out=new Map(), groups=new Map();
@@ -1619,6 +1629,9 @@ function regionNameMap(){
       const d=hav(r.lat,r.lng,c.lat,c.lng);
       if(d<bd){bd=d;best={nm,lat:c.lat,lng:c.lng,d}}
     });
+    /* its own answer, about its own middle, beats a town up the road */
+    const own=regionOwnName(r.key);
+    if(own)best={nm:own,lat:r.lat,lng:r.lng,d:0};
     if(!best){out.set(r.key,'Square '+r.key);return}
     const g=groups.get(best.nm)||[];
     g.push({r,town:best});groups.set(best.nm,g);
@@ -1631,6 +1644,9 @@ function regionNameMap(){
   return regionNameCache=out;
 }
 function regionName(r){return regionNameMap().get(r.key)||('Square '+r.key)}
+function regionUnnamed(){
+  return regions().filter(r=>regionName(r).indexOf('Square ')===0);
+}
 /* A standing pot, the way completed challenges are: reaching a tier is worth
    holding, and it cannot be lost. */
 function regionXp(){
@@ -1703,8 +1719,7 @@ function regionsHtml(){
       ' timed out on the map service — tap “Measure the squares” '+
       'again to finish them.</div>':'')+
     (unnamed?'<div class="cap">'+unnamed+' square'+(unnamed>1?'s':'')+
-      ' still showing a grid reference — they take their names from the '+
-      'map, under “Name the towns”.</div>':'');
+      ' still to be named — the button below does it.</div>':'');
 }
 
 /* ---------- how much road a square actually holds ----------
@@ -1830,10 +1845,16 @@ async function fetchRegionRoads(){
   const rs=regions();
   if(!rs.length)return toast('Drive somewhere first.');
   settings.regionRoad=settings.regionRoad||{};
+  settings.regionNames=settings.regionNames||{};
   const todo=rs.filter(r=>settings.regionRoad[r.key]===undefined).map(r=>r.key);
   const box=$('roadsProg'), btn=$('btnRoads'), stop=$('btnRoadsStop');
-  if(!todo.length){
-    if(box){box.classList.add('on');box.innerHTML=progBar(1,1,'Every square is measured.')}
+  /* Measuring and naming are two halves of the same job: a row is no use
+     with a share but no name, and the button used to stop at the first half
+     and say "every square is measured" while half the list read as grid
+     references, with the naming on another tab entirely. */
+  if(!todo.length&&!regionUnnamed().length){
+    if(box){box.classList.add('on');
+      box.innerHTML=progBar(1,1,'Every square is measured and named.')}
     return;
   }
   if(btn)btn.disabled=true;
@@ -1879,6 +1900,40 @@ async function fetchRegionRoads(){
     if(i+OVERPASS_BATCH<todo.length&&!roadsStop)
       await new Promise(x=>setTimeout(x,1500));
   }
+  /* then the other half of the job: anything still reading as a grid
+     reference is looked up on its own centre. Nominatim takes one point at a
+     time, so these are not batched, but there are only ever the few the fog
+     run could not cover. */
+  regionCache=null;regionNameCache=null;
+  const noName=roadsStop?[]:regionUnnamed();
+  let named=0,nameBad=0;
+  for(let i=0;i<noName.length&&!roadsStop;i++){
+    const r=noName[i];
+    waited=0;
+    const label=()=>{if(box)box.innerHTML=progBar(i,noName.length,
+      'Naming '+(i+1)+' of '+noName.length+
+      (waited>2?' · '+waited+' s':'')+(nameBad?' · '+nameBad+' failed':''))};
+    label();
+    const tick=setInterval(()=>{waited++;label()},1000);
+    try{
+      const res=await fetchFor('https://nominatim.openstreetmap.org/reverse'+
+        '?format=jsonv2&zoom=12&addressdetails=1&lat='+r.lat.toFixed(5)+
+        '&lon='+r.lng.toFixed(5),15000);
+      if(!res.ok)throw new Error('HTTP '+res.status+(res.statusText?' '+res.statusText:''));
+      const nm=placeNameFrom(await res.json());
+      if(nm){settings.regionNames[r.key]=nm;named++}
+      else{nameBad++;errs.set('nothing named there',(errs.get('nothing named there')||0)+1)}
+    }catch(e){
+      nameBad++;
+      const why=(e&&e.name==='AbortError')?'no answer in 15 s'
+        :((e&&e.message)?String(e.message).slice(0,60):'no connection');
+      errs.set(why,(errs.get(why)||0)+1);
+    }
+    clearInterval(tick);
+    regionNameCache=null;
+    await saveV2(K_SET,settings);
+    if(i<noName.length-1&&!roadsStop)await new Promise(x=>setTimeout(x,1200));
+  }
   if(btn)btn.disabled=false;
   if(stop)stop.style.display='none';
   regionCache=null;regionNameCache=null;
@@ -1888,16 +1943,21 @@ async function fetchRegionRoads(){
     const done=ok+miss;
     const why=[...errs.entries()].sort((a,b)=>b[1]-a[1])
       .map(e=>e[0]+(e[1]>1?' ×'+e[1]:'')).join(' · ');
-    box.innerHTML=progBar(ok,todo.length,
-      (ok?ok+' of '+todo.length+' measured':'None measured')+
-      (roadsStop&&done<todo.length?' · stopped':'')+
-      (miss?' · '+miss+' failed — tap again to retry them':
-        (done<todo.length?'':' · all done')),
-      miss?(ok?'part':'bad'):'')+
+    const bits=[];
+    if(todo.length)bits.push(ok+' of '+todo.length+' measured');
+    if(noName.length)bits.push(named+' of '+noName.length+' named');
+    const sour=miss+nameBad;
+    box.innerHTML=progBar(ok+named,todo.length+noName.length,
+      (bits.join(' · ')||'Nothing to do')+
+      (roadsStop?' · stopped':'')+
+      (sour?' · '+sour+' failed — tap again to retry them':
+        (roadsStop?'':' · all done')),
+      sour?((ok+named)?'part':'bad'):'')+
       (why?'<div class="pg-e">'+esc(why)+'</div>':'');
   }
-  toast(ok?'Measured '+ok+' square'+(ok>1?'s':'')+(miss?', '+miss+' failed.':'.')
-          :'Nothing measured — the map service is busy.');
+  toast((ok||named)
+    ?'Measured '+ok+', named '+named+(miss+nameBad?', '+(miss+nameBad)+' failed.':'.')
+    :'Nothing came back — the services are busy, tap again.');
 }
 /* ---------- the towns behind the fog ----------
    With the map taken away the coverage floats in nothing, so the places you

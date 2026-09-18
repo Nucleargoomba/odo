@@ -325,14 +325,20 @@ refuses to fake this and so does this.
 
 Squares are built from the coverage cells rather than the raw points, so a
 region counts the same distinct road the heat map does and a commute driven
-two hundred times counts once. They are named from the town labels already
-looked up for the fog map, so no region costs a lookup of its own; one with no
-named town nearby keeps its grid reference, and the list says so and points at
-the button that fixes it.
+two hundred times counts once. They take the name of the nearest town already
+looked up for the fog map, which costs nothing because that lookup has
+happened anyway. Where there is no such town — the fog run was cut short, or
+the nearest cluster could not be named — the square is looked up on its own
+centre instead. Between the two, every square you have driven in gets a name.
+A grid reference is not something anyone can read.
 
-Each button sits with what it changes: "Name the towns" is on the map because
-it labels the map, "Measure the squares" is under this list because it fills
-this list.
+Measuring and naming are two halves of one job, so one button does both:
+"Measure and name the squares", under the list it fills. It used to stop at
+the first half and report "every square is measured" while half the rows still
+read as grid references, with the naming on another tab entirely and no way to
+reach it from here.
+
+"Name the towns" stays on the map, because what it labels is the map.
 
 ### Measuring a square against the map
 
