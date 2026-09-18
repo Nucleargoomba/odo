@@ -344,8 +344,18 @@ The share is conservative in a town. Driven distance is counted in distinct
 streets count once on top and three times underneath. It is fair in the
 countryside and an under-read in a city centre.
 
+A bar under the button counts the squares as they are measured and names the
+one being asked about, so a run that takes two minutes looks like it is
+working rather than like nothing happening.
+
 The public Overpass servers are free, need no key, and are frequently busy;
-504 and 429 are normal. So three mirrors are tried in turn, each answered
+504 and 429 are normal. When a square fails, the reason is shown rather than
+swallowed — "HTTP 504 Gateway Timeout ×8" says the servers are loaded and
+trying later will work, where "HTTP 400" would mean the query is wrong and
+trying later will not. Overpass reports a timeout two ways: usually an HTTP
+status, but under load it answers 200 with no elements and a remark
+explaining itself, which would otherwise read as a square holding no road at
+all, so that case is caught and reported too. So three mirrors are tried in turn, each answered
 square is saved as it arrives, and a square that could not be reached is left
 unasked rather than recorded as having no roads — which would have marked
 every square the server was too busy for as roadless for ever. Tapping the

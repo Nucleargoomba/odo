@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · one scale at a time · assets v25';
+const BUILD='2026-09-18 · progress and reasons · assets v26';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1747,42 +1747,92 @@ function regionPct(r){
    is remembered, while a timeout is not an answer and must be asked again.
    Writing zero for both would have quietly marked every square the server
    was too busy for as roadless, for ever. */
+/* Returns {m:metres} or {err:'why'}. The reason is carried back rather than
+   swallowed, because "the map service is busy" is not something you can act
+   on and "HTTP 504 Gateway Timeout ×8" is: it says the servers are loaded and
+   trying later will work, where a 400 would mean the query itself is wrong
+   and trying later will not.
+
+   Overpass reports a timeout two different ways. Usually it is an HTTP status,
+   but under load it answers 200 with no elements and a "remark" explaining
+   itself, which would otherwise read as a square holding no road at all. */
 async function overpassRoadM(box){
   const q='[out:json][timeout:90];way["highway"~"^('+OVERPASS_ROADS+')$"]('+
     box.map(x=>x.toFixed(5)).join(',')+');make stat total=sum(length());out;';
+  let last='no answer';
   for(const host of OVERPASS_MIRRORS){
     try{
       const res=await fetch(host+'?data='+encodeURIComponent(q));
-      if(!res.ok)continue;                      // 429 and 504 are common here
+      if(!res.ok){
+        last='HTTP '+res.status+(res.statusText?' '+res.statusText:'');
+        continue;
+      }
       const j=await res.json();
       const el=(j.elements||[])[0];
+      if(!el&&j.remark){
+        last=String(j.remark).replace(/\s+/g,' ').trim().slice(0,60);
+        continue;
+      }
       const m=el&&el.tags?Number(el.tags.total):0;
-      if(isFinite(m))return m;
-    }catch(e){/* try the next mirror */}
+      if(isFinite(m))return {m};
+      last='unreadable answer';
+    }catch(e){
+      /* a thrown fetch is the network, not the server */
+      last=(e&&e.message)?String(e.message).slice(0,60):'no connection';
+    }
   }
-  return null;
+  return {err:last};
+}
+function progBar(done,total,label,cls){
+  const pct=total?Math.round(done/total*100):0;
+  return '<div class="pg-bar"><i class="'+(cls||'')+'" style="width:'+pct+'%"></i></div>'+
+    '<div class="pg-t">'+esc(label)+'</div>';
 }
 async function fetchRegionRoads(){
   const rs=regions();
   if(!rs.length)return toast('Drive somewhere first.');
   settings.regionRoad=settings.regionRoad||{};
   const todo=rs.filter(r=>settings.regionRoad[r.key]===undefined);
-  if(!todo.length)return toast('Every square already measured.');
-  toast('Measuring '+todo.length+' square'+(todo.length>1?'s':'')+
-    ' against the map — a minute or two. It picks up where it stops.');
+  const box=$('roadsProg'), btn=$('btnRoads');
+  if(!todo.length){
+    if(box){box.classList.add('on');box.innerHTML=progBar(1,1,'Every square is measured.')}
+    return;
+  }
+  if(btn)btn.disabled=true;
+  if(box)box.classList.add('on');
   let ok=0,miss=0;
-  for(const r of todo){
-    const m=await overpassRoadM(regionBox(r.key));
-    if(m===null)miss++;                         // left unset, so it is asked again
-    else{settings.regionRoad[r.key]=m/1000;ok++}
+  const errs=new Map();
+  for(let i=0;i<todo.length;i++){
+    const r=todo[i];
+    if(box)box.innerHTML=progBar(i,todo.length,
+      'Measuring '+(i+1)+' of '+todo.length+' · '+regionName(r)+
+      (miss?' · '+miss+' failed so far':''));
+    const res=await overpassRoadM(regionBox(r.key));
+    if(res.err){
+      miss++;                                   // left unset, so it is asked again
+      errs.set(res.err,(errs.get(res.err)||0)+1);
+    }else{
+      settings.regionRoad[r.key]=res.m/1000;ok++;
+    }
     regionCache=null;regionNameCache=null;
     await saveV2(K_SET,settings);               // keep what has been answered
-    await new Promise(x=>setTimeout(x,1500));   // the public servers ask for restraint
+    if(i<todo.length-1)
+      await new Promise(x=>setTimeout(x,1500)); // the public servers ask for restraint
   }
+  if(btn)btn.disabled=false;
   render();
-  toast(ok?'Measured '+ok+' square'+(ok>1?'s':'')+
-    (miss?'. '+miss+' timed out — tap again to finish them.':'.')
-    :'The map service is busy. Nothing lost — tap again in a minute.');
+  if(box){
+    box.classList.add('on');
+    const why=[...errs.entries()].sort((a,b)=>b[1]-a[1])
+      .map(e=>e[0]+(e[1]>1?' ×'+e[1]:'')).join(' · ');
+    box.innerHTML=progBar(ok,todo.length,
+      (ok?ok+' of '+todo.length+' measured':'None measured')+
+      (miss?' · '+miss+' failed — tap again to retry them':' · all done'),
+      miss?(ok?'part':'bad'):'')+
+      (why?'<div class="pg-e">'+esc(why)+'</div>':'');
+  }
+  toast(ok?'Measured '+ok+' square'+(ok>1?'s':'')+(miss?', '+miss+' failed.':'.')
+          :'Nothing measured — the map service is busy.');
 }
 /* ---------- the towns behind the fog ----------
    With the map taken away the coverage floats in nothing, so the places you

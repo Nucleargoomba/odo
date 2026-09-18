@@ -677,3 +677,18 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 .rg-row.pending .rg-top .n{color:var(--slate)}
 .rg-row.pending .rg-bar{background:#0A0906;opacity:.5}
 .rg-sub b{color:var(--amber);font-weight:400}
+
+/* ---------- progress while measuring ---------- */
+.prog{display:none;margin-top:10px}
+.prog.on{display:block}
+.pg-bar{height:6px;background:#0A0906;border-radius:3px;overflow:hidden;
+  border:1px solid var(--line)}
+.pg-bar i{display:block;height:100%;background:var(--amber);border-radius:3px;
+  transition:width .25s ease}
+.pg-bar i.part{background:linear-gradient(90deg,var(--amber),#A8764E)}
+.pg-bar i.bad{background:var(--needle)}
+.pg-t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate);
+  margin-top:5px;letter-spacing:.03em}
+.pg-e{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--needle);
+  margin-top:4px;word-break:break-word}
+button:disabled{opacity:.5;cursor:default}
