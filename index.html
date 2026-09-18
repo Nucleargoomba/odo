@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=18">
+<link rel="stylesheet" href="app.css?v=19">
 </head>
 <body>
 <div class="wrap">
@@ -58,6 +58,8 @@
       <button class="btn-start" id="btnRec">Start</button>
       <div class="hint" id="hint">Keep this screen visible while you drive — a background tab stops receiving GPS.</div>
     </div>
+
+    <div class="carpick" id="carPick"></div>
 
     <section class="live-panel" id="livePanel">
       <div class="speed"><div class="n" id="lvSpeed">0</div><div class="u">km/h</div></div>
@@ -312,6 +314,9 @@
     <div class="legend"><span>Once</span><i style="background:linear-gradient(90deg,#3F5B6B,#E8A33D,#D2402A)"></i><span>Often</span>
       <span class="key-new"><i></i>new</span></div>
     <div class="sheet-foot">
+      <div class="row" style="margin-bottom:8px">
+        <button class="ghost" id="btnFog">Fog of war</button>
+      </div>
       <div class="seg small" id="heatSel">
         <button data-h="week">This week</button>
         <button data-h="month" class="on">This month</button>
@@ -377,6 +382,6 @@
 
 <div class="toast" id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

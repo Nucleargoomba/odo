@@ -1,6 +1,6 @@
 /* ODO service worker: app shell cached for offline, map tiles cached as you drive them */
-const SHELL='odo-shell-v17', TILES='odo-tiles-v1';
-const FILES=['./','./index.html','./app.css?v=18','./app.js?v=18','./manifest.webmanifest',
+const SHELL='odo-shell-v18', TILES='odo-tiles-v1';
+const FILES=['./','./index.html','./app.css?v=19','./app.js?v=19','./manifest.webmanifest',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];
 

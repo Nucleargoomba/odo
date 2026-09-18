@@ -252,3 +252,22 @@ worked out per drive from the car that drove it, two cars earn at their own
 rates from the same wheel.
 
 A car with no year set earns exactly what it earned before.
+
+## Which car was that
+
+After a drive is saved, the Drive tab asks which car it was, with a button per
+car you have entered and the active one already chosen. Asked afterwards
+rather than before, because the answer is obvious once you are standing next
+to the thing, and a question before the key turns is one more screen between
+you and driving. One car is one glance and no taps.
+
+Changing the answer re-earns the drive: the age bonus is worked out per drive
+from the car that drove it, so moving a drive between a 1991 car and a new one
+moves its xp with it.
+
+## Fog of war
+
+A toggle on the heat map that takes the map out from under the coverage,
+leaving only the roads you have actually driven. It is the same data seen as a
+different question — the shape of what you know, rather than where you have
+been on a map of somewhere else.

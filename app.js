@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-17 · car age xp · assets v18';
+const BUILD='2026-09-18 · car picker + fog · assets v19';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1226,6 +1226,7 @@ async function start(){
   const gotMotion=await askMotion();
   if(!gotMotion)toast('No motion sensor — g and smoothness will be blank.');
   $('btnRec').textContent='Stop';$('btnRec').classList.add('live');
+  {const cp=$('carPick');if(cp)cp.classList.remove('on')}
   $('livePanel').classList.add('on');
   $('hint').textContent='Recording. Leaving this screen will pause GPS updates.';
   watchId=navigator.geolocation.watchPosition(onPos,onErr,
@@ -1310,6 +1311,7 @@ async function stop(){
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
   render();
+  showCarPick(d.id);
   const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
   const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
   floatXp(driveXp(d));
@@ -1333,7 +1335,7 @@ document.addEventListener('visibilitychange',async()=>{
 window.addEventListener('beforeunload',e=>{if(rec){e.preventDefault();e.returnValue=''}});
 
 /* ============ maps ============ */
-let map,layer,allMap,allLayer;
+let map,layer,allMap,allLayer,allTiles;
 function openDrive(id){
   const d=drives.find(x=>x.id===id);if(!d)return;
   $('shTitle').textContent=d.name;
@@ -1407,9 +1409,17 @@ document.querySelectorAll('#heatSel button').forEach(b=>{
 });
 $('shClose').onclick=()=>$('sheet').classList.remove('on');
 $('shAllClose').onclick=()=>$('sheetAll').classList.remove('on');
+$('btnFog').onclick=async()=>{
+  settings.fog=!settings.fog;
+  await saveV2(K_SET,settings);
+  $('btnFog').classList.toggle('on',fogOn());
+  $('btnAll').onclick();
+  toast(fogOn()?'Fog of war on — only roads you have driven.':'Map back on.');
+};
 $('btnAll').onclick=()=>{
   if(!drives.length)return toast('No routes to map yet.');
   $('sheetAll').classList.add('on');
+  $('btnFog').classList.toggle('on',fogOn());
   const c=coverage();
   $('allInfo').textContent=drives.length+' drives · '+(c.unique*CELL/1000).toFixed(0)+
     ' km of distinct road · roads you repeat burn hotter';
@@ -1418,9 +1428,12 @@ $('btnAll').onclick=()=>{
       $('allmap').innerHTML='<div class="empty" style="border:0">Map needs a connection.</div>';return}
     if(!allMap){
       allMap=L.map('allmap');
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(allMap);
+      allTiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom:19,attribution:'© OpenStreetMap'});
     }
+    if(fogOn()){if(allMap.hasLayer(allTiles))allMap.removeLayer(allTiles)}
+    else if(!allMap.hasLayer(allTiles))allTiles.addTo(allMap);
+    $('allmap').classList.toggle('fog',fogOn());
     if(allLayer)allMap.removeLayer(allLayer);
     const cells=coverage().cells, all=[], segs=[];
     const heat=n=>n>=8?'#D2402A':n>=4?'#E8A33D':n>=2?'#8C8455':'#3F5B6B';
@@ -1464,6 +1477,44 @@ $('btnAll').onclick=()=>{
       : 'Highlighting off.';
   },60);
 };
+
+/* ---------- which car was that? ----------
+   Asked after the drive rather than before it. The answer is obvious once you
+   are standing next to the thing, and a question before the key turns is one
+   more screen between you and driving. The car that drove it is already set
+   from the active car, so one car is one glance and no taps.
+
+   Changing it re-earns the drive: the age bonus is worked out per drive from
+   the car that drove it, so moving a drive between a 1991 car and a new one
+   moves its xp too. */
+function showCarPick(id){
+  const box=$('carPick');
+  if(!box)return;
+  const d=drives.find(x=>x.id===id);
+  if(!d||cars.length<1){box.classList.remove('on');box.innerHTML='';return}
+  box.innerHTML='<div class="cp-t">Which car was that?</div>'+
+    '<div class="cp-row">'+cars.map(c=>
+      '<button class="cp'+(d.carId===c.id?' on':'')+'" data-car="'+c.id+'">'+
+      esc(c.name)+(c.year?'<s>'+c.year+'</s>':'')+'</button>').join('')+'</div>';
+  box.classList.add('on');
+  box.querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
+    if(d.carId===b.dataset.car)return;
+    d.carId=b.dataset.car;
+    settings.activeCar=d.carId;
+    await saveV2(K_DRV,drives);
+    await saveV2(K_SET,settings);
+    const c=cars.find(x=>x.id===d.carId);
+    render();showCarPick(id);
+    toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
+  });
+}
+
+/* ---------- fog of war ----------
+   The same coverage, with the map underneath it taken away. What is left is
+   only the roads you have actually driven, which is a different question from
+   where you have been on a map: it shows the shape of what you know rather
+   than the shape of the country. */
+function fogOn(){return !!settings.fog}
 
 /* ============ data in / out ============ */
 function dl(name,text,type){
