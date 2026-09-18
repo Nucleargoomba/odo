@@ -692,3 +692,11 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 .pg-e{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--needle);
   margin-top:4px;word-break:break-word}
 button:disabled{opacity:.5;cursor:default}
+
+/* ---------- the level badge ---------- */
+.lvl-badge{display:flex;justify-content:center;margin:2px 0 14px}
+.lu-badge{display:flex;justify-content:center;margin-bottom:6px}
+.lb{display:block}
+.lb .lb-n{font-family:'Saira Condensed',sans-serif;font-weight:700;
+  letter-spacing:.01em}
+.lu-badge .lb{filter:drop-shadow(0 0 14px rgba(255,255,255,.14))}

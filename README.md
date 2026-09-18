@@ -115,6 +115,31 @@ Long hauler, Pathfinder, Ironbutt, Cartographer, Legend. The rank colour drives
 the accent on the level number, the tier pips under the xp bar and the level-up
 card.
 
+Legend used to be the end of it — every level past 80 said "top rank" and
+nothing changed again, which turns the last rank into a wall on a ladder that
+is otherwise endless. Past the named ranks it carries on in numbered eras of
+twenty levels, Legend II, Legend III and so on, each with its own colour from a
+cycle of nine. There is always a next thing named and a distance to it.
+
+## The level badge
+
+A level was a number, and a number is the same shape at 3 as at 300. The badge
+is drawn from the level itself, so it changes every time you gain one and never
+runs out of ways to change:
+
+- every level, one more pip, up to four
+- every 5 levels, the pips become a bar, up to four bars
+- every 25 levels, a ring is added and the marks start again
+
+Four bars and four pips fill a band of twenty-five exactly, so a band reads at
+a glance and a new ring reads as a promotion rather than as clutter. Rings
+stack to six and then begin again on a new colour, which is what keeps it going
+for ever: there is no last badge to reach. The glow deepens with each ring, so
+a high badge reads hotter across the room.
+
+It sits above the xp bar and fills the level-up card. Level 32 is two rings,
+one bar and one pip.
+
 `driveXp()` is now the sum of `xpBreakdown()`, so the itemised list can never
 disagree with the total. The breakdown appears in each drive's sheet, on the
 level-up card, and aggregated on the Stats tab as where your xp comes from.

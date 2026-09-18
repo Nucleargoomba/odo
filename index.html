@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=30">
+<link rel="stylesheet" href="app.css?v=31">
 </head>
 <body>
 <div class="wrap">
@@ -48,7 +48,8 @@
       <div class="odo" id="odo"></div>
       <div class="odo-unit">Kilometres</div>
       <div class="sweep">
-        <div class="sweep-head"><span>XP <b id="xpNow">0</b></span><span id="xpNext">–</span></div>
+        <div class="lvl-badge" id="lvlBadge"></div>
+      <div class="sweep-head"><span>XP <b id="xpNow">0</b></span><span id="xpNext">–</span></div>
         <div class="bar"><div class="fill" id="xpFill"></div></div>
         <div class="pips" id="rankPips"></div>
       </div>
@@ -383,6 +384,7 @@
   <div class="lu-inner">
     <div class="lu-glow"></div>
     <div class="lu-kicker">Level up</div>
+    <div class="lu-badge" id="luBadge"></div>
     <div class="lu-level" id="luLevel">2</div>
     <div class="lu-rank" id="luRank">Commuter <span>I</span></div>
     <div class="lu-sub" id="luSub"></div>
@@ -393,6 +395,6 @@
 
 <div class="toast" id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 </body>
 </html>

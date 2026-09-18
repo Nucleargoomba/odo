@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · every square named · assets v30';
+const BUILD='2026-09-18 · level badge · assets v31';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -864,6 +864,8 @@ function render(){
   $('xpNow').textContent=totXp.toLocaleString();
   $('xpNext').textContent=(nxt-totXp).toLocaleString()+' xp to level '+(lvl+1);
   $('xpFill').style.width=Math.max(2,Math.min(100,(totXp-base)/(nxt-base)*100))+'%';
+  const lb=$('lvlBadge');
+  if(lb)lb.innerHTML=levelBadge(lvl,78);
   const pips=$('rankPips');
   if(pips)pips.innerHTML=Array.from({length:ri.tiers},(_,i)=>
     '<i class="'+(i<ri.tier?'on':'')+'"></i>').join('')+
@@ -2362,9 +2364,7 @@ async function claimChallenges(){
 }
 
 /* ---------- ranks ---------- */
-const RANKS=[[1,'Learner'],[5,'Commuter'],[10,'Regular'],[16,'Road tripper'],
-  [24,'Long hauler'],[34,'Pathfinder'],[46,'Ironbutt'],[60,'Cartographer'],[80,'Legend']];
-function rankOf(lvl){let r='Learner';RANKS.forEach(([n,t])=>{if(lvl>=n)r=t});return r}
+function rankOf(lvl){return rankInfo(lvl).name}
 
 /* ---------- share card ---------- */
 function shareCard(d){
@@ -4645,17 +4645,97 @@ const RANKS2=[
   {lvl:60,name:'Cartographer', col:'#9B5CD6'},
   {lvl:80,name:'Legend',       col:'#F2ECDC'}
 ];
+/* ============ the level badge ============
+   A level was a number, and a number is the same shape at 3 as at 300. The
+   badge is drawn from the level itself, so it changes every single time you
+   gain one and never runs out of ways to change:
+
+     every level      one more pip, up to four
+     every 5 levels   the pips become a bar, up to four bars
+     every 25 levels  a ring is added and the marks start again
+
+   Four bars and four pips fill a band of twenty-five exactly, so a band is
+   always readable at a glance and a new ring reads as a promotion rather than
+   as clutter. Rings stack to six and then begin again on a new colour, which
+   is what keeps it going for ever: there is no last badge to reach. */
+const BADGE_BAND=25, BADGE_RINGS=6;
+function levelMarks(lvl){
+  const n=Math.max(1,Math.floor(lvl))-1;
+  const era=Math.floor(n/BADGE_BAND);            // 0,1,2...
+  const within=n%BADGE_BAND;                     // 0..24
+  return {era,rings:(era%BADGE_RINGS)+1,cycle:Math.floor(era/BADGE_RINGS),
+          bars:Math.floor(within/5),pips:within%5};
+}
+function levelBadge(lvl,size){
+  const m=levelMarks(lvl), ri=rankInfo(lvl), col=ri.col;
+  const S=size||78;
+  const row=(k,y,draw)=>{
+    let s='';
+    for(let i=0;i<k;i++)s+=draw(50+(i-(k-1)/2)*11,y);
+    return s;
+  };
+  let g='';
+  /* the glow deepens with every ring, so a high badge reads hotter */
+  g+='<circle cx="50" cy="50" r="47" fill="'+col+'" opacity="'+
+    (0.05+0.022*m.rings).toFixed(3)+'"/>';
+  g+='<circle cx="50" cy="50" r="46" fill="#0A0906" stroke="'+col+
+    '" stroke-width="2.5"/>';
+  for(let i=1;i<m.rings;i++)
+    g+='<circle cx="50" cy="50" r="'+(46-i*4.5).toFixed(1)+'" fill="none" stroke="'+
+      col+'" stroke-width="1.2" opacity="'+(0.85-i*0.09).toFixed(2)+'"/>';
+  g+=row(m.pips,30,(x,y)=>'<circle cx="'+x.toFixed(1)+'" cy="'+y+
+    '" r="3.1" fill="'+col+'"/>');
+  g+=row(m.bars,70,(x,y)=>'<rect x="'+(x-5.5).toFixed(1)+'" y="'+(y-2)+
+    '" width="11" height="4" rx="1.4" fill="'+col+'"/>');
+  const n=Math.max(1,Math.floor(lvl));
+  const fs=n<100?31:n<1000?25:20;
+  g+='<text x="50" y="50" text-anchor="middle" dominant-baseline="central" '+
+    'class="lb-n" font-size="'+fs+'" fill="'+col+'">'+n+'</text>';
+  return '<svg class="lb" viewBox="0 0 100 100" width="'+S+'" height="'+S+
+    '" role="img" aria-label="Level '+n+'">'+g+'</svg>';
+}
+
+/* ---------- ranks that do not stop ----------
+   The ladder ended at Legend and then said "top rank" for ever, which turns
+   the last rank into a wall. Past the named ranks it carries on in numbered
+   eras of twenty levels, each with its own colour, so there is always a next
+   thing named and a distance to it. */
+const LEGEND_SPAN=20;
+const LEGEND_COLS=['#F2ECDC','#8FD3F4','#6BD08A','#C9D94A','#E8A33D',
+  '#E67E2E','#D2402A','#C4356B','#9B5CD6'];
+const RN=[[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],
+  [50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+function romanOf(n){
+  n=Math.floor(n);
+  if(!(n>0))return '';
+  if(n>3999)return String(n);          // past here a numeral is easier to read
+  let out='',v=n;
+  RN.forEach(p=>{while(v>=p[0]){out+=p[1];v-=p[0]}});
+  return out;
+}
 const ROMAN=['I','II','III','IV','V'];
 function rankInfo(lvl){
   let i=0;
   RANKS2.forEach((r,n)=>{if(lvl>=r.lvl)i=n});
   const r=RANKS2[i], next=RANKS2[i+1];
-  const span=(next?next.lvl:r.lvl+20)-r.lvl;
-  const into=lvl-r.lvl;
-  const tiers=Math.min(5,Math.max(3,Math.round(span/4)));
-  const tier=Math.min(tiers,1+Math.floor(into/span*tiers));
-  return {name:r.name,col:r.col,tier,tiers,roman:ROMAN[tier-1],
-    next:next?next.name:null,nextAt:next?next.lvl:null};
+  if(next){
+    const span=next.lvl-r.lvl;
+    const into=lvl-r.lvl;
+    const tiers=Math.min(5,Math.max(3,Math.round(span/4)));
+    const tier=Math.min(tiers,1+Math.floor(into/span*tiers));
+    return {name:r.name,col:r.col,tier,tiers,roman:ROMAN[tier-1],
+      next:next.name,nextAt:next.lvl,era:1};
+  }
+  /* past the named ladder: numbered eras, so there is always a next */
+  const over=lvl-r.lvl;
+  const era=Math.floor(over/LEGEND_SPAN)+1;
+  const into=over%LEGEND_SPAN;
+  const tiers=5;
+  const tier=Math.min(tiers,1+Math.floor(into/LEGEND_SPAN*tiers));
+  return {name:r.name+(era>1?' '+romanOf(era):''),
+    col:LEGEND_COLS[(era-1)%LEGEND_COLS.length],
+    tier,tiers,roman:ROMAN[tier-1],
+    next:r.name+' '+romanOf(era+1),nextAt:r.lvl+era*LEGEND_SPAN,era};
 }
 /* every source of xp, itemised, so the number is never mysterious */
 function xpBreakdown(d){
@@ -4727,6 +4807,8 @@ function celebrate(level,gained,drive){
   const r=rankInfo(level);
   const box=$('levelUp');if(!box)return;
   box.style.setProperty('--rank',r.col);
+  const lub=$('luBadge');
+  if(lub)lub.innerHTML=levelBadge(level,132);
   $('luLevel').textContent=level;
   $('luRank').innerHTML=r.name+' <span>'+r.roman+'</span>';
   $('luSub').textContent=r.nextAt
