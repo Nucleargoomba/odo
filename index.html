@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=37">
+<link rel="stylesheet" href="app.css?v=38">
 </head>
 <body>
 <div class="wrap">
@@ -57,16 +57,18 @@
 
     <div class="ignition">
       <button class="btn-start" id="btnRec">Start</button>
+      <button class="btn-hold" id="btnPause" style="display:none">Pause</button>
       <div class="hint" id="hint">Keep this screen visible while you drive — a background tab stops receiving GPS.</div>
     </div>
 
     <div class="carpick" id="carPick"></div>
 
     <section class="live-panel" id="livePanel">
+      <div class="lv-state" id="lvState"></div>
       <div class="speed"><div class="n" id="lvSpeed">0</div><div class="u">km/h</div></div>
       <div class="live-grid">
         <div><div class="k">Distance</div><div class="v" id="lvDist">0.0</div></div>
-        <div><div class="k">Elapsed</div><div class="v" id="lvTime">0:00</div></div>
+        <div><div class="k">Driving</div><div class="v" id="lvTime">0:00</div></div>
         <div><div class="k">Top</div><div class="v" id="lvTop">0</div></div>
         <div><div class="k">Climb</div><div class="v" id="lvClimb">0</div></div>
         <div><div class="k">Peak g</div><div class="v" id="lvG">0.0</div></div>
@@ -257,6 +259,19 @@
       <button class="ghost" id="btnClaim">Assign old drives</button>
     </div>
     <div id="carCompare"></div>
+
+    <h2>Recording</h2>
+    <div class="foot" style="margin-top:0">
+      A drive starts when the car first moves, not when you press Start. Stand still
+      for longer than this and the clock stops until you move again — shorter stops,
+      like a red light, stay part of the drive.
+    </div>
+    <div class="seg small" id="stopSel">
+      <button data-s="45">45 s</button>
+      <button data-s="60" class="on">1 min</button>
+      <button data-s="90">90 s</button>
+      <button data-s="120">2 min</button>
+    </div>
     <div class="foot">
       Service intervals count the kilometres you actually log, added to the odometer reading you enter.
       Fuel figures come from the litres per 100 km you set — an estimate, not a measurement.
@@ -407,6 +422,6 @@
 
 <div class="toast" id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-18 · cars side by side · assets v37';
+const BUILD='2026-09-29 · the clock waits, and you can pause it · assets v38';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -510,6 +510,11 @@ const COMBO_MIN=180;         // under three minutes of movement, say nothing
 /* cumulative moving seconds, so a stretch is measured in driving and not in
    waiting. A gap longer than 30 s is a dropped fix rather than a stop, and
    counting it either way would be a guess, so it counts as neither. */
+/* dur used to be wall clock and now means driving time, so anything walking the
+   point timeline asks for the span instead. Drives recorded before the split
+   have no span and their dur is the old wall clock, which is the right answer. */
+function spanOf(d){return d.span!=null?d.span:d.dur}
+function stoppedOf(d){return d.stopped||0}
 function movingClock(d){
   const p=d.pts||[], ts=[], cum=[];
   let run=0;
@@ -561,8 +566,9 @@ function comboOf(d){
   const sensor=Array.isArray(d.joltT);
   const clk=movingClock(d);
   if(clk.total<COMBO_MIN)return null;
-  const js=(sensor?d.joltT:gpsJolts(d)).filter(t=>t>0&&t<d.dur).sort((a,b)=>a-b);
-  const marks=[0].concat(js,[d.dur]);
+  const sp=spanOf(d);
+  const js=(sensor?d.joltT:gpsJolts(d)).filter(t=>t>0&&t<sp).sort((a,b)=>a-b);
+  const marks=[0].concat(js,[sp]);
   let best=0,at=0;
   for(let i=1;i<marks.length;i++){
     const run=movedBy(clk,marks[i])-movedBy(clk,marks[i-1]);
@@ -1252,6 +1258,15 @@ $('btnTest').onclick=()=>{
 /* ============ recording ============ */
 let rec=null,watchId=null,tick=null,wake=null;
 const MAXACC=45, MAXSPD=90;
+/* "Moving" is decided on speed and never on displacement. Across every parked
+   stretch in the backup a stationary phone reported at most 2.9 km/h, but it
+   wandered up to 22 m between fixes and 49 m from where it started — so a
+   distance test would call a parked car moving, while 5 km/h never fired once
+   in 422 parked samples. movingClock() already draws the line at 5 km/h. */
+const MOVE=1.39;                       // m/s
+const STILL_DEFAULT=60;                // s at a standstill before the clock stops
+const RESUME_FIXES=3;                  // moving fixes that undo a forgotten pause
+function stillSecs(){const v=Number(settings.stopAfter);return v>0?v:STILL_DEFAULT}
 let motionOn=false,gPeak=0,harsh=0,gSum=0,gN=0,jolts=[];
 let grav={x:0,y:0,z:0},gravInit=false,inJolt=false;
 
@@ -1260,6 +1275,7 @@ let grav={x:0,y:0,z:0},gravInit=false,inJolt=false;
    Measuring the magnitude of the raw vector does not work: gravity dominates
    it, and 0.3 g of cornering barely moves the number. */
 function onMotion(e){
+  if(!rec||rec.phase!=='run')return;   // mounting the phone is not a cornering force
   let lin=e.acceleration;                       // already gravity-free when offered
   if(!lin||lin.x==null){
     const a=e.accelerationIncludingGravity;
@@ -1290,34 +1306,149 @@ async function askMotion(){
 }
 async function start(){
   if(!navigator.geolocation)return toast('This browser has no GPS access.');
-  rec={start:Date.now(),dist:0,top:0,pts:[],last:null,lastAcc:null,gain:0,alt:null,idle:0};
+  rec={start:0,armed:Date.now(),phase:'arm',excl:0,holdFrom:0,stillSince:0,moves:0,lead:0,
+    dist:0,top:0,pts:[],last:null,lastAcc:null,gain:0,alt:null,idle:0};
   gPeak=0;harsh=0;gSum=0;gN=0;gravInit=false;inJolt=false;jolts=[];
   const gotMotion=await askMotion();
   if(!gotMotion)toast('No motion sensor — g and smoothness will be blank.');
   $('btnRec').textContent='Stop';$('btnRec').classList.add('live');
   {const cp=$('carPick');if(cp)cp.classList.remove('on')}
   $('livePanel').classList.add('on');
-  $('hint').textContent='Recording. Leaving this screen will pause GPS updates.';
+  setPhaseUI();
   watchId=navigator.geolocation.watchPosition(onPos,onErr,
     {enableHighAccuracy:true,maximumAge:1000,timeout:25000});
   tick=setInterval(()=>{
-    $('lvTime').textContent=hms((Date.now()-rec.start)/1000);
-    if(rec.lastAcc&&Date.now()-rec.lastAcc>6000)$('lvSpeed').textContent='0';
+    const now=Date.now();
+    // the standstill has to be promoted here too: a phone that is not moving
+    // can go quiet for a while, and the clock must stop on time regardless
+    if(rec.phase==='run'&&rec.stillSince&&now-rec.stillSince>=stillSecs()*1000)enterHold();
+    $('lvTime').textContent=hms(driveSecs(now));
+    if(rec.lastAcc&&now-rec.lastAcc>6000)$('lvSpeed').textContent='0';
   },500);
   try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen')}catch(e){}
 }
+/* ---------- the drive clock ----------
+   Three things are kept apart. `span` is wall clock from the moment the car
+   first moved. `excl` is time deliberately left out of it: any standstill
+   longer than stillSecs(), plus anything spent manually paused. What is left
+   is the driving time, and that is what `dur` means from this build on.
+   A short stop is not excluded at all, so waiting at a light still counts as
+   part of the drive — the whole point of having a threshold. */
+function driveSecs(now){
+  if(!rec||!rec.start)return 0;
+  return Math.max((now-rec.start)/1000-exclSecs(now),0);
+}
+function exclSecs(now){
+  if(!rec)return 0;
+  return rec.excl+(rec.holdFrom?(now-rec.holdFrom)/1000:0);
+}
+/* Held from the moment the car stopped, not from the moment the threshold was
+   crossed, so a two-minute wait drops out whole rather than losing its tail. */
+function enterHold(){
+  rec.phase='hold';rec.holdFrom=rec.stillSince||Date.now();setPhaseUI();
+}
+function releaseHold(now){
+  if(rec.holdFrom)rec.excl+=(now-rec.holdFrom)/1000;
+  rec.holdFrom=0;rec.stillSince=0;rec.phase='run';setPhaseUI();
+}
+function beginRun(now){
+  rec.phase='run';rec.start=now;
+  rec.lead=Math.round((now-rec.armed)/1000);
+  rec.excl=0;rec.holdFrom=0;rec.stillSince=0;
+  gPeak=0;harsh=0;gSum=0;gN=0;jolts=[];   // discard whatever mounting the phone produced
+  setPhaseUI();
+}
+function pauseRec(){
+  if(!rec||rec.phase==='arm')return;
+  const now=Date.now();
+  if(rec.phase==='hold'){rec.excl+=(now-rec.holdFrom)/1000;rec.holdFrom=0}
+  rec.phase='pause';rec.holdFrom=now;rec.stillSince=0;rec.moves=0;
+  setPhaseUI();toast('Paused — the clock and the distance are on hold.');
+}
+function resumeRec(){
+  if(!rec||rec.phase!=='pause')return;
+  releaseHold(Date.now());
+  // drop the anchor: if the phone went quiet during the pause the old fix may be
+  // far away and long ago, and bridging to it would bill the pause as distance
+  rec.last=null;rec.moves=0;
+  setPhaseUI();
+}
+function setPhaseUI(){
+  const st=$('lvState'),pb=$('btnPause');
+  if(!rec){if(st)st.className='lv-state';if(pb)pb.style.display='none';return}
+  if(pb){pb.style.display=rec.phase==='arm'?'none':'';
+    pb.textContent=rec.phase==='pause'?'Resume':'Pause'}
+  const msg=rec.phase==='arm'?['wait','Waiting to move — the clock starts when the car does']
+    :rec.phase==='hold'?['hold','Stopped for over '+Math.round(stillSecs())+' s — clock paused']
+    :rec.phase==='pause'?['hold','Paused — press Resume, or just drive off']
+    :null;
+  if(st){st.className='lv-state'+(msg?' on '+msg[0]:'');st.textContent=msg?msg[1]:''}
+  $('hint').textContent=rec.phase==='arm'
+    ?'Armed. Nothing is counted until you actually move.'
+    :'Recording. Leaving this screen will pause GPS updates.';
+}
+
 function onPos(p){
   const c=p.coords;
   if(c.accuracy>MAXACC){$('lvGps').innerHTML='Weak signal · ±'+Math.round(c.accuracy)+' m';return}
   const now=p.timestamp||Date.now();
   let spd=(c.speed!=null&&c.speed>=0)?c.speed:0;
+  let d=0,dt=0;
   if(rec.last){
-    const dt=(now-rec.last.t)/1000;
+    dt=(now-rec.last.t)/1000;
     if(dt<=0)return;
-    const d=hav(rec.last.lat,rec.last.lng,c.latitude,c.longitude);
+    d=hav(rec.last.lat,rec.last.lng,c.latitude,c.longitude);
     const derived=d/dt;
     if(derived>MAXSPD)return;
     if(c.speed==null||c.speed<0)spd=derived;
+  }
+  const moving=spd>=MOVE;
+  rec.lastAcc=Date.now();
+  $('lvSpeed').textContent=Math.round(spd*3.6);
+
+  // Armed: sitting in the car with the app open is not the start of the drive.
+  if(rec.phase==='arm'){
+    // every parked fix overwrites the anchor, so the metres a stationary phone
+    // wanders never reach the distance either
+    rec.last={lat:c.latitude,lng:c.longitude,t:now,st:0};
+    if(!moving){
+      $('lvGps').innerHTML='Ready · ±'+Math.round(c.accuracy)+' m · waiting for movement';
+      return;
+    }
+    beginRun(now);
+    rec.pts.push([+c.latitude.toFixed(5),+c.longitude.toFixed(5),0,+(spd*3.6).toFixed(1),
+      c.altitude!=null?Math.round(c.altitude):null]);   // t=0 is the first movement
+    return;
+  }
+
+  // Paused by hand: nothing accrues. Driving off is treated as having meant to
+  // resume, because the alternative is silently losing the rest of the trip.
+  if(rec.phase==='pause'){
+    rec.last={lat:c.latitude,lng:c.longitude,t:now,st:rec.last?rec.last.st:0};
+    rec.moves=moving?rec.moves+1:0;
+    $('lvGps').innerHTML='Paused · ±'+Math.round(c.accuracy)+' m';
+    if(rec.moves>=RESUME_FIXES){resumeRec();toast('Moving again — recording resumed.')}
+    return;
+  }
+
+  if(moving){
+    if(rec.phase==='hold')releaseHold(now);
+    rec.stillSince=0;
+  }else{
+    if(!rec.stillSince)rec.stillSince=now;
+    if(rec.phase==='run'&&now-rec.stillSince>=stillSecs()*1000)enterHold();
+  }
+
+  // While held the car is parked: no distance, no climb, and no idle either —
+  // the time is gone from the drive entirely rather than counted as traffic.
+  if(rec.phase==='hold'){
+    rec.last={lat:c.latitude,lng:c.longitude,t:now,st:rec.last?rec.last.st:0};
+    $('lvTime').textContent=hms(driveSecs(now));
+    $('lvGps').innerHTML='Stopped · ±'+Math.round(c.accuracy)+' m · <b>'+rec.pts.length+'</b> points';
+    return;
+  }
+
+  if(rec.last&&dt>0){
     if(d>4||spd>1.5)rec.dist+=d; else rec.idle+=Math.min(dt,20);
   }
   if(c.altitude!=null&&(c.altitudeAccuracy==null||c.altitudeAccuracy<18)){
@@ -1326,7 +1457,8 @@ function onPos(p){
     if(Math.abs(da)>3){if(da>0)rec.gain+=da;rec.alt=c.altitude}
   }
   if(spd>rec.top&&c.accuracy<25)rec.top=spd;
-  rec.lastAcc=Date.now();
+  // point times stay true wall clock from the first movement, so the sun's
+  // position along the route and the replay slider both stay honest
   const t=Math.round((now-rec.start)/1000);
   const keep=!rec.last||hav(rec.last.lat,rec.last.lng,c.latitude,c.longitude)>12||t-rec.last.st>8;
   if(keep){
@@ -1334,12 +1466,12 @@ function onPos(p){
       c.altitude!=null?Math.round(c.altitude):null]);
     rec.last={lat:c.latitude,lng:c.longitude,t:now,st:t};
   }else rec.last.t=now;
-  $('lvSpeed').textContent=Math.round(spd*3.6);
   $('lvDist').textContent=km(rec.dist).toFixed(1);
+  $('lvTime').textContent=hms(driveSecs(now));
   $('lvTop').textContent=Math.round(rec.top*3.6);
   $('lvClimb').textContent=Math.round(rec.gain);
   $('lvG').textContent=motionOn?gPeak.toFixed(1):'–';
-  $('lvSmooth').textContent=motionOn?smoothness(harsh,(Date.now()-rec.start)/1000):'–';
+  $('lvSmooth').textContent=motionOn?smoothness(harsh,driveSecs(now)):'–';
   $('lvGps').innerHTML='Fix ±'+Math.round(c.accuracy)+' m · <b>'+rec.pts.length+'</b> points';
 }
 function onErr(e){
@@ -1355,9 +1487,17 @@ async function stop(){
   if(motionOn){window.removeEventListener('devicemotion',onMotion);motionOn=false}
   $('btnRec').textContent='Start';$('btnRec').classList.remove('live');
   $('livePanel').classList.remove('on');
+  {const pb=$('btnPause');if(pb)pb.style.display='none'}
+  {const st=$('lvState');if(st){st.className='lv-state';st.textContent=''}}
   $('hint').textContent='Keep this screen visible while you drive — a background tab stops receiving GPS.';
-  const dur=(Date.now()-rec.start)/1000;
+  const endT=Date.now();
+  if(rec.phase==='arm'){rec=null;return toast('Never moved — nothing recorded.')}
+  if(rec.holdFrom){rec.excl+=(endT-rec.holdFrom)/1000;rec.holdFrom=0}
+  const span=(endT-rec.start)/1000;
+  const stopped=Math.min(rec.excl,span);
+  const dur=Math.max(span-stopped,0);
   const d={id:String(rec.start),name:driveName(rec.start),start:rec.start,dur,
+    span:+span.toFixed(1),stopped:Math.round(stopped),lead:rec.lead,
     dist:rec.dist,top:rec.top,pts:rec.pts,gain:Math.round(rec.gain),
     idle:Math.round(rec.idle),
     g:gN?+gPeak.toFixed(2):null,
@@ -1396,6 +1536,7 @@ async function stop(){
   else toast(km(d.dist).toFixed(1)+' km · +'+driveXp(d)+' xp');
 }
 $('btnRec').onclick=()=>rec?stop():start();
+$('btnPause').onclick=()=>{if(!rec)return;rec.phase==='pause'?resumeRec():pauseRec()};
 document.addEventListener('visibilitychange',async()=>{
   if(document.visibilityState==='visible'&&rec&&'wakeLock' in navigator){
     try{wake=await navigator.wakeLock.request('screen')}catch(e){}
@@ -1410,12 +1551,20 @@ function openDrive(id){
   $('shTitle').textContent=d.name;
   $('shDist').textContent=km(d.dist).toFixed(1);
   $('shTime').textContent=hms(d.dur);
+  $('shTime').title=stoppedOf(d)
+    ?'Driving time. '+hms(spanOf(d))+' passed between first movement and Stop; '+
+     Math.round(stoppedOf(d)/60)+'′ of that was standing still and is not counted.'
+    :'Driving time.';
   const moving=Math.max(d.dur-(d.idle||0),1);
   $('shAvg').textContent=Math.round(km(d.dist)/(moving/3600));
   $('shTop').textContent=Math.round(d.top*3.6);
   $('shClimb').textContent=(gainOf(d)!=null?gainOf(d):0)+' m';
   $('shClimb').title=gainSource(d)||'measured on this drive alone';
   $('shIdle').textContent=d.idle?Math.round(d.idle/60)+'′':'0′';
+  $('shIdle').title=stoppedOf(d)
+    ?'Waiting in traffic, counted in the time. A further '+Math.round(stoppedOf(d)/60)+
+     '′ of standing still was left out of the drive.'
+    :'Waiting in traffic, counted in the time.';
   const gv=gOf(d);
   $('shG').innerHTML=gv!=null?gv.toFixed(2)+(gFromGps(d)?'<s>gps</s>':''):'–';
   const l=fuelOf(d),cst=costOf(d);
@@ -2786,11 +2935,12 @@ function placeLabel(p){
 
 /* ---------- CSV out, GPX in ---------- */
 function toCsv(){
-  const head='start,name,km,duration_s,moving_s,top_kmh,climb_m,twist_deg_per_km,'+
-    'smoothness,peak_g,litres,cost_eur,temp_c,weather\n';
+  const head='start,name,km,duration_s,moving_s,elapsed_s,stopped_s,top_kmh,climb_m,'+
+    'twist_deg_per_km,smoothness,peak_g,litres,cost_eur,temp_c,weather\n';
   return head+drives.slice().sort((a,b)=>a.start-b.start).map(d=>[
     new Date(d.start).toISOString(),JSON.stringify(d.name),km(d.dist).toFixed(2),
-    Math.round(d.dur),Math.round(d.dur-(d.idle||0)),Math.round(d.top*3.6),gainOf(d)||0,
+    Math.round(d.dur),Math.round(d.dur-(d.idle||0)),Math.round(spanOf(d)),
+    Math.round(stoppedOf(d)),Math.round(d.top*3.6),gainOf(d)||0,
     d.twist!=null?d.twist:'',smoothOf(d)!=null?smoothOf(d):'',gOf(d)!=null?gOf(d):'',
     (fuelOf(d)||'')&&fuelOf(d).toFixed(2),(costOf(d)||'')&&costOf(d).toFixed(2),
     d.wx?d.wx.t:'',d.wx?(WX[d.wx.code]||''):''
@@ -2879,6 +3029,17 @@ openDrive=function(id){curDrive=id;_openDrive(id);
   }
 };
 
+document.querySelectorAll('#stopSel button').forEach(b=>{
+  b.onclick=async()=>{
+    settings.stopAfter=Number(b.dataset.s);
+    await saveV2(K_SET,settings);
+    document.querySelectorAll('#stopSel button').forEach(x=>
+      x.classList.toggle('on',Number(x.dataset.s)===stillSecs()));
+    if(rec)setPhaseUI();
+    toast('Stops longer than '+b.textContent+' will not be counted.');
+  };
+});
+
 document.querySelectorAll('#logSel button').forEach(b=>{
   b.onclick=async()=>{settings.logKind=b.dataset.l;await saveV2(K_SET,settings);renderLogbook()};
 });
@@ -2923,6 +3084,8 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
   diagnose();
   showLeave();
   if($('build'))$('build').textContent='Build '+BUILD;
+  document.querySelectorAll('#stopSel button').forEach(x=>
+    x.classList.toggle('on',Number(x.dataset.s)===stillSecs()));
   if('serviceWorker' in navigator){
     // if a worker was already driving this page and a new one takes over,
     // reload once so the whole app is running the same code
@@ -3334,7 +3497,7 @@ function lightOf(d){
   if(!d.pts||!d.pts.length)return null;
   const p=d.pts[0];
   const a=sunElevation(p[0],p[1],d.start);
-  const b=sunElevation(p[0],p[1],d.start+d.dur*1000);
+  const b=sunElevation(p[0],p[1],d.start+spanOf(d)*1000);
   const band=e=>e<-6?'night':e<-0.5?'twilight':e<6?'golden':'day';
   return {start:+a.toFixed(1),end:+b.toFixed(1),band:band(a),
     crossed:band(a)!==band(b)?band(b):null};
@@ -3471,7 +3634,7 @@ function openReplay(id,againstId){
   const b=againstId?drives.find(d=>d.id===againstId):null;
   rp.a=a;rp.b=b;rp.t=0;rp.playing=false;rp.speed=4;
   $('rpTitle').textContent=b?'Race · '+a.name:'Replay · '+a.name;
-  $('rpRange').max=Math.round(Math.max(a.dur,b?b.dur:0));
+  $('rpRange').max=Math.round(Math.max(spanOf(a),b?spanOf(b):0));
   $('rpRange').value=0;
   // offer any other run of the same route to race against
   const route=buildRoutes().find(r=>r.runs.some(x=>x.id===a.id));
@@ -3523,7 +3686,7 @@ function atTime(d,t){
 }
 function drawFrame(t){
   const a=rp.a;if(!a)return;
-  const pa=atTime(a,Math.min(t,a.dur));
+  const pa=atTime(a,Math.min(t,spanOf(a)));
   if(rp.trace){
     const upto=a.pts.filter(p=>p[2]<=t).map(p=>[p[0],p[1]]);
     upto.push([pa.lat,pa.lng]);
@@ -3532,9 +3695,9 @@ function drawFrame(t){
   }
   $('rpSpeed').textContent=Math.round(pa.spd);
   $('rpDist').textContent=km(pa.dist).toFixed(1);
-  $('rpClock').textContent=hms(Math.min(t,a.dur));
+  $('rpClock').textContent=hms(Math.min(t,spanOf(a)));
   if(rp.b){
-    const pb=atTime(rp.b,Math.min(t,rp.b.dur));
+    const pb=atTime(rp.b,Math.min(t,spanOf(rp.b)));
     const uptoB=rp.b.pts.filter(p=>p[2]<=t).map(p=>[p[0],p[1]]);
     uptoB.push([pb.lat,pb.lng]);
     if(rp.traceB){rp.traceB.setLatLngs(uptoB);rp.markers[1].setLatLng([pb.lat,pb.lng])}
@@ -3549,7 +3712,7 @@ function playPause(){
   if(rp.playing){stopReplay();return}
   rp.playing=true;$('rpPlay').textContent='Pause';
   let last=performance.now();
-  const end=Math.max(rp.a.dur,rp.b?rp.b.dur:0);
+  const end=Math.max(spanOf(rp.a),rp.b?spanOf(rp.b):0);
   rp.timer=setInterval(()=>{
     const now=performance.now();
     rp.t+=(now-last)/1000*rp.speed;last=now;

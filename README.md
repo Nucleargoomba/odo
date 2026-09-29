@@ -34,11 +34,62 @@ Stored in IndexedDB, falling back to localStorage. Both are per-origin, so drive
 not follow you to a different domain — use Export backup and Import backup to move
 them. Export CSV gives one row per drive for use in a spreadsheet.
 
+## The drive clock
+
+Pressing Start arms the recorder; it does not start the drive. The clock starts at
+the first fix reading 5 km/h or more, and the trace's `t=0` is that moment. In the
+66 drives in the backup, a median of 55 s of standing still sat at the front of
+every one of them, and 91% had more than 15 s — all of it previously counted as
+driving.
+
+Once running, a standstill only stops the clock if it lasts longer than the
+threshold in Garage → Recording (a minute by default). Shorter stops stay part of
+the drive, so a red light is still driving. When a stop does cross the threshold
+the *whole* stop is taken out, counted from the moment the car stopped rather than
+from the moment the threshold was crossed — otherwise every long wait would keep a
+minute of padding.
+
+The threshold is a setting rather than a constant because the right value is a
+question about your roads, not about the code. The backup says a minute is a
+reasonable place to stand: mid-drive stops cluster hard at 15–45 s (84% of 321
+stops) and thin out right around 60 s, which is the 90th percentile. Raising it to
+90 s keeps roughly 20 more minutes of waiting in the totals; dropping it to 45 s
+takes about 24 minutes more out.
+
+**Pause** holds the clock and the distance for as long as you like, so a trip with
+lunch in the middle is one drive rather than three. If you drive off having
+forgotten to resume, three consecutive moving fixes resume it for you — losing the
+rest of the trip is worse than a slightly late restart. Nothing that happens while
+paused is recorded: no distance, no climb, no cornering forces.
+
+Movement is decided on reported speed and never on how far the phone appears to
+have moved. Parked, this phone never reported more than 2.9 km/h across 422
+samples, but it wandered up to 22 m between fixes and 49 m from where it started,
+so a distance test would call a parked car moving. That drift used to be billed as
+real distance — about 22 m per drive, 1.5 km across the backup — and no longer is.
+
+### What the stored numbers mean
+
+| field | meaning |
+| --- | --- |
+| `dur` | driving time: `span` minus `stopped`. This is what the app shows and what route times compare. |
+| `span` | wall clock from first movement to Stop. The point timeline runs on this. |
+| `stopped` | time taken out: stops over the threshold, plus anything spent paused. |
+| `idle` | short stops that stayed *inside* the drive — traffic, not breaks. |
+| `lead` | how long the car sat there after Start before it moved. |
+
+`dur` used to mean wall clock, and for drives recorded before this change it still
+does: they have no `span`, so anything walking the point timeline asks `spanOf()`,
+which falls back to `dur`. Old drives are left exactly as they were rather than
+rewritten on a guess, so a route's older times are measured slightly more
+generously than its newer ones.
+
 ## Notes
 
 - Location and motion sensors both require an https origin.
 - The tab must stay visible while recording; a backgrounded browser tab stops
-  receiving GPS updates.
+  receiving GPS updates. This applies while paused too — the pause keeps the GPS
+  watch alive rather than tearing it down, so resuming is instant.
 - Coverage is measured on a 100 m grid and reads roughly 10% high because of GPS
   scatter.
 - Peak g is measured by estimating the gravity vector per axis and subtracting it.
