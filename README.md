@@ -43,18 +43,31 @@ every one of them, and 91% had more than 15 s — all of it previously counted a
 driving.
 
 Once running, a standstill only stops the clock if it lasts longer than the
-threshold in Garage → Recording (a minute by default). Shorter stops stay part of
+threshold in Garage → Recording (90 s by default). Shorter stops stay part of
 the drive, so a red light is still driving. When a stop does cross the threshold
 the *whole* stop is taken out, counted from the moment the car stopped rather than
 from the moment the threshold was crossed — otherwise every long wait would keep a
 minute of padding.
 
 The threshold is a setting rather than a constant because the right value is a
-question about your roads, not about the code. The backup says a minute is a
-reasonable place to stand: mid-drive stops cluster hard at 15–45 s (84% of 321
-stops) and thin out right around 60 s, which is the 90th percentile. Raising it to
-90 s keeps roughly 20 more minutes of waiting in the totals; dropping it to 45 s
-takes about 24 minutes more out.
+question about your roads, not about the code.
+
+It defaults to 90 s rather than the minute the phrase "longer than a minute"
+suggests, because the backup puts the natural break there. Mid-drive stops cluster
+hard at 15–45 s (84% of 342) but the density valley is at 80–90 s, which holds a
+single stop, while 60–70 s still holds 13. A minute cuts through a populated band.
+
+One junction makes the case on its own. You stop there on 11 separate drives and
+the wait runs 14, 16, 18, 27, 33, 63, 72, 75, 90, 92 and 105 s — one light with a
+variable wait, not a break. A 60 s line deletes it from six of those drives and
+keeps it in five, so the same junction is measured two different ways depending on
+luck, which is exactly the inconsistency route comparisons cannot absorb. Counting
+places that straddle the line: eight at 60 s, three at 90 s.
+
+The cost of the higher line is small — about 11 s per drive of extra waiting left
+in the totals, 12 minutes across the whole backup. And since **Pause** now handles
+real breaks by hand, the automatic threshold is only a safety net for stops you
+forgot to pause, so it should err towards not firing.
 
 **Pause** holds the clock and the distance for as long as you like, so a trip with
 lunch in the middle is one drive rather than three. If you drive off having

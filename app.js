@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-29 · the clock waits, and you can pause it · assets v38';
+const BUILD='2026-09-29 · standstill threshold at 90 s · assets v39';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1264,7 +1264,14 @@ const MAXACC=45, MAXSPD=90;
    distance test would call a parked car moving, while 5 km/h never fired once
    in 422 parked samples. movingClock() already draws the line at 5 km/h. */
 const MOVE=1.39;                       // m/s
-const STILL_DEFAULT=60;                // s at a standstill before the clock stops
+/* 90 s, not the 60 the phrase "longer than a minute" suggests. Mid-drive stops
+   in the backup thin out at 80-90 s (one stop in that decade) while 60-70 still
+   holds 13, so a minute cuts through a populated band. One junction shows why:
+   stopped at on 11 separate drives, the wait there runs 14, 16, 18, 27, 33, 63,
+   72, 75, 90, 92, 105 s — one light, and a 60 s line deletes it from six drives
+   while keeping it in five. Manual pause covers real breaks now, so this only
+   has to catch what was forgotten, and should err towards not firing. */
+const STILL_DEFAULT=90;                // s at a standstill before the clock stops
 const RESUME_FIXES=3;                  // moving fixes that undo a forgotten pause
 function stillSecs(){const v=Number(settings.stopAfter);return v>0?v:STILL_DEFAULT}
 let motionOn=false,gPeak=0,harsh=0,gSum=0,gN=0,jolts=[];
