@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-29 · standstill threshold at 90 s · assets v39';
+const BUILD='2026-09-29 · five new stats: grades, time, days, drive length, cost · assets v40';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -3456,6 +3456,354 @@ function chartNewRoad(){
   return svgWrap(out,{h:150});
 }
 
+/* ---------- 10. the grade ladder ----------
+   gradeSpread() has worked all of this out since grading existed and only
+   ever printed it to the console, so the one place a letter appeared was
+   inside a single drive's sheet. A letter on its own says nothing: a C is
+   only disappointing if you do not know that C is where almost everything
+   lands. The ladder is the context that makes the letter mean something. */
+const GRADE_COL={S:'#D2402A',A:'#D2762A',B:'#E8A33D',C:'#A8A05C',D:'#6E9A8A',E:'#4E86A8'};
+function chartGrades(ds){
+  const gs=[];
+  ds.forEach(d=>{const g=gradeOf(d);if(g)gs.push({t:d.start,s:g.score,l:g.letter})});
+  if(gs.length<3)return '<div class="empty">Three graded drives and this starts '+
+    'drawing. Anything under 1.5 km is not graded.</div>';
+  const letters={};
+  gs.forEach(g=>letters[g.l]=(letters[g.l]||0)+1);
+  const order=GRADE_BANDS.map(b=>b[1]);              // S down to E
+  const max=Math.max(...order.map(L=>letters[L]||0));
+  const ladder='<div class="ladder">'+order.map(L=>{
+    const n=letters[L]||0;
+    return '<div class="lad"><span class="l" style="color:'+GRADE_COL[L]+'">'+L+'</span>'+
+      '<i style="width:'+(max?n/max*100:0).toFixed(1)+'%;background:'+GRADE_COL[L]+
+      ';opacity:'+(n?'.85':'0')+'"></i>'+
+      '<span class="n">'+(n||'')+'</span></div>';
+  }).join('')+'</div>';
+
+  /* the same scores against the calendar: the ladder says where you sit, this
+     says whether you are moving. A single drive is mostly the road it was on,
+     so the line is a rolling median and the dots are the drives under it. */
+  const a=axes({h:140,pl:26});
+  const t0=gs[0].t,t1=gs[gs.length-1].t,span=Math.max(t1-t0,1);
+  const X=t=>a.x((t-t0)/span), Y=v=>a.y(v/100);
+  let out='';
+  GRADE_BANDS.forEach(b=>{
+    if(b[0]<=0)return;
+    const yy=Y(b[0]);
+    out+='<line class="grid" x1="'+a.pl+'" y1="'+yy.toFixed(1)+'" x2="'+(a.w-a.pr)+
+      '" y2="'+yy.toFixed(1)+'"/>'+txt(a.pl-4,yy+3,b[1],'tick','end');
+  });
+  if(gs.length>=7){
+    const roll=gs.map((_,i)=>({t:gs[i].t,
+      v:median(gs.slice(Math.max(0,i-3),Math.min(gs.length,i+4)).map(x=>x.s))}));
+    out+='<path class="line" d="'+roll.map((p,i)=>(i?'L':'M')+X(p.t).toFixed(1)+' '+
+      Y(p.v).toFixed(1)).join('')+'"/>';
+  }
+  gs.forEach(g=>out+='<circle cx="'+X(g.t).toFixed(1)+'" cy="'+Y(g.s).toFixed(1)+
+    '" r="2.6" fill="'+GRADE_COL[g.l]+'" opacity=".9"/>');
+  out+=txt(a.pl,a.h-6,shortDate(t0),'tick');
+  out+=txt(a.w-a.pr,a.h-6,shortDate(t1),'tick','end');
+
+  const best=Math.max(...gs.map(g=>g.s));
+  const med=Math.round(median(gs.map(g=>g.s)));
+  const note='<div class="ch-note">'+gs.length+' drives graded · median <b>'+med+
+    '</b> · best <b>'+best+'</b>'+
+    (letters.S?'.':'. S starts at 86 and nothing has reached it yet.')+'</div>';
+  return '<div class="ch-block">'+ladder+'</div>'+
+    '<div class="ch-block">'+svgWrap(out,{h:140})+'</div>'+note;
+}
+
+/* ---------- 11. moving, waiting, stopped ----------
+   span, dur, stopped, idle and lead are the most carefully reasoned numbers
+   in the app, and until now none of them reached this tab: the clock work was
+   visible only as an absence, drives that came out slightly shorter than they
+   used to. This is what it took out and where that time went.
+
+   The nesting matters. span is the wall clock from first movement to Stop;
+   dur is span minus the long stops; idle sits *inside* dur, so moving time is
+   dur minus idle. lead is before any of it — the car sitting there after you
+   pressed Start. Adding lead to span gives the whole time the recorder ran. */
+function chartTime(ds){
+  const t={move:0,idle:0,stop:0,lead:0};
+  const leads=[];
+  ds.forEach(d=>{
+    const idle=Math.min(d.idle||0,d.dur||0);
+    t.move+=Math.max((d.dur||0)-idle,0);
+    t.idle+=idle;
+    t.stop+=stoppedOf(d);
+    t.lead+=d.lead||0;
+    if(d.lead!=null)leads.push(d.lead);
+  });
+  const tot=t.move+t.idle+t.stop+t.lead;
+  if(tot<600)return '<div class="empty">Not enough recorded time yet.</div>';
+  const parts=[['move','moving','#E8A33D'],['idle','stopped in traffic','#A8A05C'],
+    ['stop','long stops and pauses','#4E86A8'],['lead','sat there after Start','#847E6C']];
+  const bar='<div class="stackbar">'+parts.filter(p=>t[p[0]]>0).map(p=>
+    '<i style="width:'+(t[p[0]]/tot*100).toFixed(1)+'%;background:'+p[2]+
+    '" title="'+p[1]+'"></i>').join('')+'</div>';
+  const rows='<div class="recs" style="margin-top:10px">'+parts.filter(p=>t[p[0]]>0).map(p=>
+    '<div class="rec"><span class="k"><i class="sw" style="background:'+p[2]+'"></i>'+p[1]+
+    ' · '+(t[p[0]]/tot*100).toFixed(0)+'%</span><span class="v">'+spanText(t[p[0]])+
+    '</span></div>').join('')+'</div>';
+  /* The lead is the one worth naming. It is time that used to be counted as
+     driving, and it is time you spent watching an armed recorder. */
+  let note='';
+  if(leads.length>=5){
+    const md=Math.round(median(leads));
+    note='<div class="ch-note">A median of <b>'+md+' s</b> sits at the front of every '+
+      'drive before the car moves — <b>'+spanText(t.lead)+'</b> across '+leads.length+
+      ' of them, all of it once counted as driving.</div>';
+  }else if(t.idle>0){
+    note='<div class="ch-note">Traffic has cost you <b>'+spanText(t.idle)+
+      '</b> without the clock ever stopping.</div>';
+  }
+  return bar+rows+note;
+}
+function spanText(s){
+  if(s<90)return Math.round(s)+' s';
+  if(s<5400)return Math.round(s/60)+' min';
+  const h=Math.floor(s/3600),m=Math.round(s%3600/60);
+  return h+' h'+(m?' '+m:'');
+}
+
+/* ---------- 12. the days you drove ----------
+   streak() has paid xp since the day streak existed without ever being drawn.
+   "When you drive" is every drive folded onto one week, which by construction
+   cannot show a run of days or the gap that ended one. This can.
+
+   The streaks are counted over every drive rather than the chosen period,
+   because a streak is a fact about your driving and not about the window you
+   happen to be looking through — the same footing records and borders sit on. */
+function chartDays(ds){
+  if(!ds.length)return '<div class="empty">Nothing to plot yet.</div>';
+  const byDay=new Map();
+  ds.forEach(d=>{const k=dayKey(d.start);byDay.set(k,(byDay.get(k)||0)+km(d.dist))});
+  /* whole weeks, Monday first, ending with the week we are in */
+  const end=new Date();end.setHours(0,0,0,0);
+  end.setDate(end.getDate()+(6-((end.getDay()+6)%7)));
+  const cur=new Date(ds[0].start);cur.setHours(0,0,0,0);
+  cur.setDate(cur.getDate()-((cur.getDay()+6)%7));
+  const days=[];
+  while(cur<=end&&days.length<800){days.push(new Date(cur));cur.setDate(cur.getDate()+1)}
+  const MAXW=53;
+  if(days.length>MAXW*7)days.splice(0,days.length-MAXW*7);  // a multiple of 7, so Monday stays Monday
+  const wk=days.length/7;
+  const max=Math.max(...byDay.values(),1);
+  const today=dayKey(Date.now());
+  let cells='';
+  days.forEach(d=>{
+    const k=dayKey(d.getTime()), v=byDay.get(k)||0;
+    const lvl=v?Math.min(4,1+Math.floor(v/max*3.99)):0;
+    cells+='<i class="l'+lvl+(k===today?' now':'')+'" title="'+
+      d.toLocaleDateString(undefined,{day:'numeric',month:'short'})+
+      (v?' · '+v.toFixed(1)+' km':' · nothing')+'"></i>';
+  });
+  let months='',lastLab=-9;
+  for(let w=0;w<wk;w++){
+    const d0=days[w*7], prev=w?days[(w-1)*7]:null;
+    const fresh=!prev||d0.getMonth()!==prev.getMonth();
+    const lab=(fresh&&w-lastLab>=3&&w<wk-1)
+      ? d0.toLocaleDateString(undefined,{month:'short'}) : '';
+    if(lab)lastLab=w;
+    months+='<span>'+lab+'</span>';
+  }
+  /* A short history must not blow the squares up. The columns are fractions of
+     the width so a full year shrinks to fit, but the grid is capped at a cell
+     size that still reads as a calendar rather than as a chessboard. */
+  const cols='grid-template-columns:repeat('+wk+',minmax(0,1fr));max-width:'+
+    Math.round(wk*14.5)+'px';
+  const grid='<div class="cal-months" style="'+cols+'">'+months+'</div>'+
+    '<div class="cal-wrap"><div class="cal-days"><span>M</span><span></span><span>W</span>'+
+    '<span></span><span>F</span><span></span><span>S</span></div>'+
+    '<div class="cal-cells" style="'+cols+'">'+cells+'</div></div>';
+  const drove=days.filter(d=>byDay.has(dayKey(d.getTime()))).length;
+  const now=streak(), best=longestStreak();
+  const note='<div class="ch-note">Drove on <b>'+drove+'</b> of '+days.length+' days'+
+    (now?' · on a <b>'+now+'-day</b> run right now':'')+
+    (best>1?' · longest <b>'+best+' days</b>':'')+'.</div>';
+  return grid+note;
+}
+/* The longest run of consecutive days with a drive on them, walked from the
+   first drive to today so a run that ended long ago still counts. */
+function longestStreak(){
+  if(!drives.length)return 0;
+  const days=new Set(drives.map(d=>dayKey(d.start)));
+  const c=new Date(Math.min(...drives.map(d=>d.start)));c.setHours(0,0,0,0);
+  const stop=new Date();stop.setHours(0,0,0,0);
+  let best=0,run=0,guard=0;
+  while(c<=stop&&guard++<20000){
+    if(days.has(dayKey(c.getTime()))){run++;if(run>best)best=run}else run=0;
+    c.setDate(c.getDate()+1);
+  }
+  return best;
+}
+
+/* ---------- 13. how long your drives are ----------
+   The grading anchors were set on the claim that these drives fall into two
+   clumps — a short commute and a long run — and that a Journey ramp reaching
+   the far end would leave half of them pinned at full marks. That claim has
+   never been visible anywhere in the app. Here it is, and it re-checks itself
+   as drives come in: if the shape stops being two clumps, GR_KM is wrong. */
+function chartLength(ds){
+  const v=ds.map(d=>km(d.dist)).filter(x=>x>0).sort((a,b)=>a-b);
+  if(v.length<5)return '<div class="empty">Five drives and this starts drawing.</div>';
+  const top=v[v.length-1];
+  const bw=top<=25?2:top<=60?5:10;                  // km per bin
+  const nb=Math.max(1,Math.ceil(top/bw));
+  const bins=new Array(nb).fill(0);
+  const binOf=x=>Math.min(nb-1,Math.floor(x/bw));
+  v.forEach(x=>bins[binOf(x)]++);
+  const a=axes({h:160,pl:26});
+  const max=Math.max(...bins);
+  const bwPx=(a.w-a.pl-a.pr)/nb;
+  let out='';
+  for(let i=0;i<nb;i++){
+    const x=a.pl+i*bwPx;
+    let h=(a.y(0)-a.pt)*(bins[i]/max);
+    if(bins[i]>0)h=Math.max(h,2);
+    out+='<rect class="chbar amber" x="'+(x+1).toFixed(1)+'" y="'+(a.y(0)-h).toFixed(1)+
+      '" width="'+(bwPx-2).toFixed(1)+'" height="'+h.toFixed(1)+'"><title>'+
+      (i*bw)+'–'+((i+1)*bw)+' km · '+bins[i]+' drive'+(bins[i]===1?'':'s')+
+      '</title></rect>';
+    if(nb<=8||i%Math.ceil(nb/8)===0)
+      out+=txt(x+bwPx/2,a.h-6,String(i*bw),'tick','middle');
+  }
+  /* the median is a bare line and the number lives in the note: a label up
+     here lands on top of whichever bar happens to be tallest, and the unit
+     in the bottom corner lands on top of the last tick */
+  const med=median(v);
+  const mx=a.pl+Math.min(med/bw,nb)*bwPx;
+  out+='<line class="md" x1="'+mx.toFixed(1)+'" y1="'+a.pt+'" x2="'+mx.toFixed(1)+
+    '" y2="'+a.y(0)+'"/>';
+  out+=txt(a.pl-4,a.y(0),'0','tick','end');
+  out+=txt(a.pl-4,a.pt+8,String(max),'tick','end');
+
+  /* two clumps or one: local maxima at least two bins apart, each holding a
+     share big enough to be a habit rather than a handful of odd drives */
+  const peaks=[];
+  for(let i=0;i<nb;i++){
+    if(!bins[i])continue;
+    if((i===0||bins[i]>=bins[i-1])&&(i===nb-1||bins[i]>=bins[i+1]))peaks.push(i);
+  }
+  peaks.sort((x,y)=>bins[y]-bins[x]);
+  const p1=peaks.length?peaks[0]:0;
+  const p2=peaks.find(i=>Math.abs(i-p1)>=2);
+  /* where a clump actually sits, not where its bin happens to be centred: a
+     10 km commute falling in a 0–10 km bin is not a 5 km drive */
+  const mid=i=>{const g=v.filter(x=>binOf(x)===i);return g.length?median(g):i*bw+bw/2};
+  let note;
+  if(p2!=null&&bins[p2]/v.length>=0.15){
+    const lo=Math.min(p1,p2), hi=Math.max(p1,p2);
+    note='Two clumps: one around <b>'+mid(lo).toFixed(0)+' km</b> and one around <b>'+
+      mid(hi).toFixed(0)+' km</b>. That shape is what the Journey anchor is set against.';
+  }else{
+    note='One clump, around <b>'+mid(p1).toFixed(0)+' km</b>.';
+  }
+  const pinned=v.filter(x=>x>=GR_KM[1]).length;
+  note='Bars are drives per '+bw+' km · dashed line is the median, <b>'+
+    med.toFixed(0)+' km</b>. '+note+
+    ' <b>'+pinned+'</b> of '+v.length+' reach the '+GR_KM[1]+
+    ' km where Journey stops paying more.';
+  return svgWrap(out,{h:160})+'<div class="ch-note">'+note+'</div>';
+}
+
+/* ---------- 14. what it costs ----------
+   Month by month draws what you spent, which mostly draws how much you drove.
+   The question underneath it is a different one: what does it cost to move the
+   car a given distance, and is that changing. Cost per 100 km answers it, and
+   consumption per tank is the measurement it rests on.
+
+   A tank needs two fill-ups, so the consumption block stays away until there
+   are two rather than drawing a line through a single point. */
+function chartFuel(ds){
+  const car=cars.find(c=>c.id===settings.activeCar)||cars[0]||null;
+  if(!car)return '<div class="empty">No car in the Garage yet.</div>';
+  const st=fuelStats(car), measured=measuredL100(car)!=null;
+  let out='';
+
+  /* cost per 100 km, by month */
+  const m=new Map();
+  ds.forEach(d=>{
+    const c=costOf(d);if(c==null)return;
+    const t=new Date(d.start), k=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
+    if(!m.has(k))m.set(k,{cost:0,km:0});
+    const o=m.get(k);o.cost+=c;o.km+=km(d.dist);
+  });
+  const keys=[...m.keys()].filter(k=>m.get(k).km>1).sort().slice(-14);
+  if(keys.length>=2){
+    const a=axes({h:150,pl:34});
+    const vals=keys.map(k=>m.get(k).cost/m.get(k).km*100);
+    const vmax=niceMax(Math.max(...vals));
+    /* two months must not become two slabs half the chart wide */
+    const bwPx=Math.min((a.w-a.pl-a.pr)/keys.length,44);
+    let s='';
+    keys.forEach((k,i)=>{
+      const x=a.pl+i*bwPx, h=(a.y(0)-a.pt)*(vals[i]/vmax);
+      s+='<rect class="chbar" x="'+(x+2).toFixed(1)+'" y="'+(a.y(0)-h).toFixed(1)+
+        '" width="'+(bwPx-4).toFixed(1)+'" height="'+Math.max(h,1).toFixed(1)+'"><title>'+
+        k+' · €'+vals[i].toFixed(2)+' per 100 km</title></rect>';
+      if(i===0||i===keys.length-1||keys.length<8)
+        s+=txt(x+bwPx/2,a.h-6,k.slice(2).replace('-','/'),'tick','middle');
+    });
+    s+=txt(a.pl-4,a.y(1)+4,'€'+vmax.toFixed(vmax<10?1:0),'tick','end');
+    s+=txt(a.pl-4,a.y(0),'0','tick','end');
+    s+=txt(a.pl+4,a.pt+6,'cost per 100 km'+
+      (measured?'':' · from the estimate in the car record'),'tick');
+    out+='<div class="ch-block">'+svgWrap(s,{h:150})+'</div>';
+  }
+
+  /* consumption per tank */
+  const t=tanks(car);
+  if(t.length>=2){
+    const a=axes({h:150,pl:34});
+    const l=t.map(x=>x.l100);
+    const lo=Math.min(...l)*0.9, hi=Math.max(...l)*1.1;
+    const X=i=>a.x(i/(t.length-1)), Y=v=>a.y(hi>lo?(v-lo)/(hi-lo):0.5);
+    let s='<line class="md" x1="'+a.pl+'" y1="'+Y(st.avg).toFixed(1)+'" x2="'+(a.w-a.pr)+
+      '" y2="'+Y(st.avg).toFixed(1)+'"/>';
+    s+='<path class="line" d="'+t.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+
+      Y(x.l100).toFixed(1)).join('')+'"/>';
+    t.forEach((x,i)=>s+='<circle class="dot" cx="'+X(i).toFixed(1)+'" cy="'+
+      Y(x.l100).toFixed(1)+'" r="3"><title>'+shortDate(x.ts)+' · '+x.l100.toFixed(1)+
+      ' L/100 km · '+x.km.toFixed(0)+' km on '+x.litres.toFixed(1)+' L ('+x.method+
+      ')</title></circle>');
+    s+=txt(a.pl-4,Y(st.avg)+3,st.avg.toFixed(1),'tick','end');
+    s+=txt(a.pl+4,a.pt+6,'L/100 km per tank · dashed is your measured average','tick');
+    s+=txt(a.pl,a.h-6,shortDate(t[0].ts),'tick');
+    s+=txt(a.w-a.pr,a.h-6,shortDate(t[t.length-1].ts),'tick','end');
+    out+='<div class="ch-block">'+svgWrap(s,{h:150})+'</div>';
+  }
+
+  /* the lifetime figures, measured where they can be */
+  const rows=[];
+  if(st){
+    rows.push(['measured consumption',st.avg.toFixed(1)+' L/100 km']);
+    rows.push(['best tank / worst',st.best.toFixed(1)+' / '+st.worst.toFixed(1)]);
+    if(st.perKm!=null&&st.spend>0)
+      rows.push(['cost to move it','€'+(st.perKm*100).toFixed(2)+' / 100 km']);
+    if(st.last&&st.last.pricePerL)
+      rows.push(['last price paid','€'+st.last.pricePerL.toFixed(3)+' / L']);
+    if(st.spend>0)rows.push(['spent on fuel','€'+st.spend.toFixed(2)]);
+  }else if(car.l100){
+    rows.push(['estimated consumption',(+car.l100).toFixed(1)+' L/100 km']);
+    if(car.price)rows.push(['price in the car record','€'+(+car.price).toFixed(3)+' / L']);
+  }
+  if(rows.length)out+='<div class="recs" style="margin-top:10px">'+rows.map(r=>
+    '<div class="rec"><span class="k">'+r[0]+'</span><span class="v">'+r[1]+
+    '</span></div>').join('')+'</div>';
+
+  if(!st){
+    out+='<div class="ch-note">'+((car.fills||[]).length<1
+      ? 'Log a fill-up and this starts measuring. Until then every figure here is the estimate you typed into the car record.'
+      : 'One fill-up logged. A tank is the stretch between two of them, so the next one turns these from an estimate into a measurement.')+
+      '</div>';
+  }else if(st.trend!=null&&Math.abs(st.trend)>=0.2){
+    out+='<div class="ch-note">Consumption has moved <b>'+Math.abs(st.trend).toFixed(1)+
+      ' L/100 km '+(st.trend>0?'up':'down')+'</b> since your first tanks.</div>';
+  }
+  return out||'<div class="empty">Nothing to show yet.</div>';
+}
+
 /* ---------- render ---------- */
 function renderStats(){
   if(!$('statCum'))return;
@@ -3465,12 +3813,17 @@ function renderStats(){
   document.querySelectorAll('#modeSel button').forEach(b=>
     b.classList.toggle('on',b.dataset.m===(settings.statMode||'xp')));
   $('statCum').innerHTML=chartCumulative(ds);
+  $('statGrade').innerHTML=chartGrades(ds);
   $('statSpeed').innerHTML=chartSpeed(ds);
+  $('statTime').innerHTML=chartTime(ds);
   $('statWeek').innerHTML=chartWeekHour(ds);
+  $('statDays').innerHTML=chartDays(ds);
   $('statRose').innerHTML=chartCompass(ds);
   $('statBorders').innerHTML=bordersHtml();
   $('statRegions').innerHTML=regionsHtml();
   $('statMonth').innerHTML=chartMonthly(ds);
+  $('statLength').innerHTML=chartLength(ds);
+  $('statFuel').innerHTML=chartFuel(ds);
   $('statRec').innerHTML=chartRecords();
   $('statRoute').innerHTML=chartRouteTrend();
   $('statWx').innerHTML=chartWeather(ds);

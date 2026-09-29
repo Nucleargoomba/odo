@@ -578,3 +578,95 @@ A row is marked only where lower really is better, which is consumption and
 cost to move. Xp per 100 km is reported and never marked: the old car earns
 more because it is old, which is the point of the age bonus and not a virtue of
 the car.
+
+## Five more things the stats tab draws
+
+Each of these reports numbers the app already stored and had no way of showing.
+Nothing here introduces a new threshold, which is deliberate: every figure is
+either measured or plainly labelled as the estimate it came from.
+
+### How you have been driving
+
+`gradeSpread()` has worked out the letter distribution since grading existed
+and only ever printed it to the console, so the one place a grade appeared was
+inside a single drive's sheet. A letter alone says nothing — a C is only
+disappointing if you do not know that C is where almost everything lands.
+
+The ladder is drawn from the same call the console version uses, so the two
+cannot disagree. On the 66 recorded drives it reads S 0, A 5, B 16, C 29, D 13,
+E 3, median 51, best 82 — the spread the grading section quotes.
+
+Under it the same scores run against the calendar, coloured by letter, with a
+seven-drive rolling median through them. A single drive is mostly the road it
+was on; the line is what is actually moving.
+
+### Moving, waiting, stopped
+
+`span`, `dur`, `stopped`, `idle` and `lead` are the most carefully reasoned
+numbers in the app and none of them had ever reached this tab. The clock work
+was visible only as an absence — drives that came out slightly shorter than
+they used to be.
+
+The nesting is what makes it readable. `span` is the wall clock from first
+movement to Stop, `dur` is `span` minus the long stops, and `idle` sits
+*inside* `dur`, so moving time is `dur` minus `idle`. `lead` is before any of
+it. The bar shows moving, stopped in traffic, long stops and pauses, and time
+sat there after Start, and those four add to the whole time the recorder ran.
+
+Across the backup that is 34 h 39 moving against 3 h 42 stopped in traffic —
+ten percent of it, none of which ever stopped the clock.
+
+Drives recorded before `span`, `stopped` and `lead` existed contribute only
+what they stored. The bar reports what is known rather than filling the gap
+with a guess, which is why the lead band is missing on old data.
+
+### Days you drove
+
+Monday-aligned weeks with month labels, a ring on today, and the streaks
+written underneath. `streak()` has paid xp since the day streak existed
+without ever being drawn, and "When you drive" folds every drive onto one week,
+which by construction cannot show a run of days or the gap that ended one.
+
+The streaks are counted over every drive rather than the chosen period, because
+a streak is a fact about your driving and not about the window you are looking
+through — the same footing records and borders sit on.
+
+The grid is capped at 53 weeks and at a cell size that still reads as a
+calendar: columns are fractions of the width so a full year shrinks to fit, but
+a fortnight of history does not turn into a chessboard of 57 px squares.
+
+The Log tab keeps its own six-month strip of the same days. That one is the
+plain picture with a legend; this one is the labelled picture with the streaks.
+
+### How long your drives are
+
+The grading anchors rest on the claim that these drives fall into two clumps, a
+short commute and a long run, and that claim was nowhere in the app. Now it is
+drawn, and it re-checks itself as drives come in: if the shape stops being two
+clumps, `GR_KM` is wrong.
+
+Bin width follows the data — 2, 5 or 10 km depending on the longest drive.
+Clumps are local maxima at least two bins apart, each holding at least 15% of
+the drives, which is the difference between a habit and a handful of odd runs.
+
+A clump is reported at the median of the drives inside it and never at the
+midpoint of its bin. A ten kilometre commute landing in a 0–10 km bin is not a
+5 km drive, and saying so would be the chart lying about its own data.
+
+On the 66 it reads two clumps, one around 7 km and one around 51 km, with 13 of
+them reaching the 55 km where Journey stops paying more.
+
+The median is a bare dashed line and its value lives in the note, because a
+label drawn up there lands on top of whichever bar happens to be tallest.
+
+### What it costs
+
+Month by month already draws what you spent, which mostly draws how much you
+drove. The question underneath it is a different one: what does it cost to move
+the car a given distance, and is that changing. So this is cost per 100 km by
+month, and under it consumption per tank against your measured average.
+
+A tank needs two fill-ups. With fewer than two the consumption block stays away
+rather than drawing a line through a single point, every figure is labelled as
+the estimate from the car record, and the note says what it is waiting for. The
+backup has one fill-up logged, so that is exactly what it says.

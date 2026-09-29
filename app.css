@@ -431,6 +431,33 @@ svg.ch.rose{max-width:260px;margin:0 auto}
 svg.ch .dot.dry{fill:#C4892C;opacity:.8}
 svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 
+/* ---------- the grade ladder ---------- */
+.ladder{display:flex;flex-direction:column;gap:4px}
+.lad{display:flex;align-items:center;gap:8px;height:16px}
+.lad .l{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:14px;
+  width:13px;flex:none;text-align:center;line-height:1}
+.lad i{display:block;height:9px;border-radius:2px;min-width:0;transition:width .5s ease}
+.lad .n{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);
+  flex:none;margin-left:auto;padding-left:6px}
+
+/* ---------- the days calendar ---------- */
+.cal-months{display:grid;gap:1.5px;margin:0 0 3px 18px;
+  font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--slate)}
+.cal-months span{white-space:nowrap;overflow:visible;line-height:1}
+.cal-wrap{display:flex;gap:4px;align-items:stretch}
+.cal-days{display:grid;grid-template-rows:repeat(7,minmax(0,1fr));gap:1.5px;width:14px;
+  flex:none;font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--slate)}
+.cal-days span{display:flex;align-items:center}
+.cal-cells{flex:1;min-width:0;display:grid;grid-auto-flow:column;
+  grid-template-rows:repeat(7,minmax(0,1fr));gap:1.5px}
+.cal-cells i{aspect-ratio:1;border-radius:1.5px;display:block}
+.cal-cells .l0{background:#141308}
+.cal-cells .l1{background:#4A3A18}
+.cal-cells .l2{background:#8A6522}
+.cal-cells .l3{background:#C4892C}
+.cal-cells .l4{background:var(--amber)}
+.cal-cells .now{box-shadow:0 0 0 1px var(--slate)}
+
 /* ---------- best roads ---------- */
 .road{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 13px;
   margin-bottom:8px;background:var(--face);border:1px solid var(--line);border-radius:11px}
