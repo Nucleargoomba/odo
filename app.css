@@ -719,6 +719,26 @@ svg.ch .dot.wet{fill:var(--cold);opacity:.95}
 .sh-car{padding:12px 16px 4px}
 .sh-car:empty{display:none}
 
+/* ---------- trip log ---------- */
+.tl-h{margin-top:16px}
+.tl-rows{margin:10px 0 4px;display:grid;gap:5px}
+.tl-rows div{display:flex;justify-content:space-between;gap:12px;font-size:12.5px}
+.tl-rows span{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--slate);flex:none;padding-top:2px}
+.tl-rows b{font-weight:500;text-align:right;min-width:0;overflow-wrap:anywhere}
+.tl-rows b s{text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--slate);margin-left:4px}
+.tl-warn{margin:8px 0 2px;padding:8px 10px;border-radius:8px;font-size:12px;
+  border:1px solid rgba(210,64,42,.45);color:#E7907F;background:rgba(210,64,42,.08)}
+.tl-card{margin-top:12px}
+.tl-bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-bottom:7px}
+.tl-bar i{display:block;height:100%;background:var(--amber)}
+.tl-bar i.hot{background:#D2402A}
+.tl-over{color:#E7907F;font-weight:600}
+.ca-kind{margin:14px 0 16px}
+.ca-kind .cp{text-align:center}
+.carask .ghost{width:100%;margin-top:8px}
+
 /* the question after a drive: above everything, the level-up included,
    because the xp it shows depends on the answer */
 .carask{position:fixed;inset:0;z-index:970;display:none;background:rgba(6,6,4,.93);

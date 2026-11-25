@@ -465,6 +465,46 @@ Changing the answer re-earns the drive: the age bonus is worked out per drive
 from the car that drove it, so moving a drive between a 1991 car and a new one
 moves its xp with it.
 
+## A trip log for the Belastingdienst
+
+A company car on which no bijtelling is paid has to prove that no more than
+500 km a year were driven privately, and a rittenregistratie is how that is
+proven. Commuting counts as business for this. Per trip the Belastingdienst
+asks for the date, the odometer at the start and the end, where from and where
+to, the route if it was not the usual one, any private detour on a business
+trip, and whether the trip was business or private. The car needs its make,
+type and plate and the period it was used.
+
+It is switched on per car, under Edit, and nothing in it is compulsory. The
+log starts the day it is switched on, so earlier drives are not dragged in as
+unmarked trips.
+
+The odometer is the source and the GPS is the check. GPS cuts corners and
+measures a few percent short, and over a year of commuting a few percent is
+hundreds of kilometres, most of the 500. So after a drive the popup asks one
+number: the reading on the dash now, when you are standing next to it. The
+start of a trip is the end of the one before. Leave it blank and the trip
+falls back to the GPS distance, and the export says so per row.
+
+When the dash and the GPS disagree by more than a few percent, or one trip
+does not start where the last one ended, the drive says so instead of
+smoothing it over. A gap in a trip log is exactly what would be counted as
+private, so it is better seen on the day than found by an inspector.
+
+Commute, business or private is one tap, and for a trip between the same two
+places as an earlier one, either way round, the earlier answer is offered.
+Anywhere new is not guessed: a wrong default there would file a private trip
+as business. Addresses are looked up from where the GPS saw the trip start
+and end, which is a house or two out once the car is rolling, and can be
+corrected in the drive's sheet along with the readings and the route.
+
+The Garage shows private kilometres this calendar year against the 500, what
+is still unmarked (which would be taken as private) and how many readings need
+checking. The export is a CSV in Dutch, separated by semicolons so Dutch Excel
+opens it, with a total per year. It is a self-kept log, not a certified
+system: the Belastingdienst accepts one that meets the requirements, but only
+a Keurmerk RitRegistratieSystemen system is presumed correct.
+
 ## A car you have a history with
 
 Two cars side by side answers which is thirstier and which costs more to move.

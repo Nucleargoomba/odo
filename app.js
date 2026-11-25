@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-11-25 · which car was that, asked properly and fixable after · assets v42';
+const BUILD='2026-11-25 · a trip log for the Belastingdienst · assets v43';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -1442,8 +1442,10 @@ function renderCars(){
       carCharHtml(c)+
       '<div class="svc">'+(svc||'<div class="c-meta">No service intervals set.</div>')+'</div>'+
       renderFuel(c)+
+      tripCardHtml(c)+
       '<div class="row" style="margin-top:10px">'+
         (settings.activeCar===c.id?'':'<button class="ghost" data-use="'+c.id+'">Use this car</button>')+
+        (c.log?'<button class="ghost" data-triplog="'+c.id+'">Trip log CSV</button>':'')+
         '<button class="ghost" data-svc="'+c.id+'">Add interval</button>'+
         '<button class="ghost" data-edit="'+c.id+'">Edit</button>'+
         '<button class="ghost" data-retire="'+c.id+'">Retire</button>'+
@@ -1464,6 +1466,7 @@ function renderCars(){
       carCharHtml(c)+
       '<div class="row" style="margin-top:10px">'+
         '<button class="ghost" data-unretire="'+c.id+'">Bring it back</button>'+
+        (c.log?'<button class="ghost" data-triplog="'+c.id+'">Trip log CSV</button>':'')+
       '</div></div>').join('');
 
   box.querySelectorAll('[data-retire]').forEach(b=>b.onclick=async()=>{
@@ -1496,6 +1499,7 @@ function renderCars(){
     if(confirm('Delete this fill-up?'))delFill(cid,fid);
   });
   box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editCar(b.dataset.edit));
+  box.querySelectorAll('[data-triplog]').forEach(b=>b.onclick=()=>exportTripLog(b.dataset.triplog));
   box.querySelectorAll('[data-done]').forEach(b=>b.onclick=async()=>{
     const [cid,sid]=b.dataset.done.split('|');
     const c=cars.find(x=>x.id===cid), s=c.services.find(x=>x.id===sid);
@@ -1861,6 +1865,7 @@ async function stop(){
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
   render();
   await askCar(d);
+  await askTrip(d);
   const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
   const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
   floatXp(driveXp(d));
@@ -2108,7 +2113,9 @@ function renderShCar(id){
   const d=drives.find(x=>x.id===id);
   if(!d||!cars.length){box.innerHTML='';return}
   const list=cars.filter(c=>!c.retired).concat(cars.filter(c=>c.retired));
-  box.innerHTML='<div class="cp-t">Car</div><div class="cp-row">'+carButtons(list,d.carId)+'</div>';
+  box.innerHTML='<div class="cp-t">Car</div><div class="cp-row">'+carButtons(list,d.carId)+'</div>'+
+    tripSheetHtml(d);
+  wireTripSheet(d,id);
   box.querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
     if(d.carId===b.dataset.car)return;
     d.carId=b.dataset.car;
@@ -2117,6 +2124,307 @@ function renderShCar(id){
     renderShCar(id);renderXpBreak(id);fuelCell(d);render();
     toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
   });
+}
+
+/* ============ the trip log (rittenregistratie) ============
+   For a company car on which no bijtelling is paid: the Belastingdienst wants
+   proof that no more than 500 km a year were driven privately, and a trip log
+   is how that is proven. Per trip it asks for the date, the odometer at the
+   start and the end, where from and where to, the route if it was not the
+   usual one, and whether it was business or private. Commuting counts as
+   business for this. The car needs its make, type and plate, and the period it
+   was used.
+
+   It is switched on per car and nothing in it is compulsory. A drive with no
+   reading typed falls back to the GPS distance and says so in the export.
+
+   The odometer is the source, not the GPS. GPS cuts corners and under-measures
+   by a few percent, and over a year of commuting that is hundreds of km, which
+   is most of the 500. So one number is asked per trip: the reading on the dash
+   at the end, when you are standing next to it anyway. The start of a trip is
+   the end of the one before. When the two do not join up — a trip the app did
+   not record, or a typo — the gap is shown rather than smoothed over, because
+   a gap in a trip log is precisely what would be counted as private. */
+const KINDS=[['commute','Commute','Woon-werk'],['work','Business','Zakelijk'],
+             ['private','Private','Privé']];
+const PRIVATE_CAP=500;
+function kindLabel(k,nl){const x=KINDS.find(y=>y[0]===k);return x?x[nl?2:1]:''}
+/* the log starts the day it is switched on: drives from before then were
+   never meant to be in it, and counting them would show months of trips as
+   unmarked */
+function inLog(c,d){return d.start>=(c.logFrom||0)}
+function tripCar(d){const c=carOf(d);return c&&c.log&&inLog(c,d)?c:null}
+
+/* every drive of a car in order, with its readings worked out */
+function tripLog(c){
+  const ds=drives.filter(d=>d.carId===c.id&&inLog(c,d)).sort((a,b)=>a.start-b.start);
+  let prev=null,prevEst=true;
+  return ds.map(d=>{
+    const gps=km(d.dist);
+    let a=null,aEst=true,b=null,bEst=true;
+    if(d.odoA!=null){a=d.odoA;aEst=false}
+    else if(prev!=null){a=prev;aEst=prevEst}
+    if(d.odoB!=null){b=d.odoB;bEst=false}
+    else if(a!=null)b=a+gps;
+    if(a==null&&b!=null)a=b-gps;
+    const gap=(d.odoA!=null&&prev!=null)?d.odoA-prev:0;
+    const dist=(a!=null&&b!=null)?b-a:gps;
+    const est=aEst||bEst;
+    /* the check the reading is for: does the dash agree with the GPS? The
+       two differ by a few percent as a rule, so only a real difference counts */
+    const off=!est&&Math.abs(dist-gps)>Math.max(3,gps*.25)?dist-gps:0;
+    prev=b;prevEst=bEst;
+    return {d,a,b,dist,gps,est,aEst,bEst,gap:Math.abs(gap)>=1?gap:0,off,kind:d.kind||null};
+  });
+}
+function tripRow(d){
+  const c=carOf(d);if(!c)return null;
+  return tripLog(c).find(r=>r.d===d)||null;
+}
+function tripYear(c,yr){
+  const y=yr||new Date().getFullYear();
+  const out={commute:0,work:0,private:0,none:0,checks:0,n:0};
+  tripLog(c).forEach(r=>{
+    if(new Date(r.d.start).getFullYear()!==y)return;
+    out[r.kind||'none']+=r.dist;out.n++;
+    if(r.gap||r.off)out.checks++;
+  });
+  return out;
+}
+
+/* A commute is the same two places every day, so the kind of the last trip
+   between the same two ends — either way round — is offered first. A trip
+   anywhere new is not guessed: a wrong default there would be a private trip
+   quietly filed as business. */
+function guessKind(d){
+  const p=d.pts;if(!p||p.length<2)return null;
+  const A=p[0],B=p[p.length-1];
+  const near=(x,y)=>hav(x[0],x[1],y[0],y[1])<PLACE_R;
+  const prev=drives.filter(x=>x!==d&&x.kind&&x.carId===d.carId&&x.pts&&x.pts.length>1)
+    .sort((a,b)=>b.start-a.start).find(x=>{
+      const a=x.pts[0],b=x.pts[x.pts.length-1];
+      return (near(a,A)&&near(b,B))||(near(a,B)&&near(b,A));
+    });
+  return prev?prev.kind:null;
+}
+
+/* the second half of the after-drive popup, for a car that keeps a log */
+function askTrip(d){
+  const c=tripCar(d), box=$('carAsk');
+  if(!c||!box)return Promise.resolve();
+  const r=tripRow(d);
+  let kind=d.kind||guessKind(d);
+  box.querySelector('.ca-t').textContent='Trip log';
+  $('caSub').textContent=(c.plate||c.name)+' · '+km(d.dist).toFixed(1)+' km by GPS';
+  const paint=()=>{$('caList').innerHTML=
+    '<div class="fm-grid"><label class="fm-wide">Odometer now'+
+    '<input id="caOdo" type="number" inputmode="numeric" step="1" placeholder="'+
+    (r&&r.b!=null?'about '+Math.round(r.b):'the reading on the dash')+'"'+
+    (d.odoB!=null?' value="'+d.odoB+'"':'')+'>'+
+    '<s>blank uses the GPS distance</s></label></div>'+
+    '<div class="cp-row ca-kind">'+KINDS.map(k=>
+      '<button class="cp'+(kind===k[0]?' on':'')+'" data-kind="'+k[0]+'">'+k[1]+'</button>').join('')+
+    '</div>'+
+    '<button class="ghost key" id="caDone">Save</button>'+
+    '<button class="ghost" id="caSkip">Skip</button>'};
+  paint();
+  box.classList.add('on');
+  return new Promise(done=>{
+    const wire=()=>{
+      $('caList').querySelectorAll('[data-kind]').forEach(b=>b.onclick=()=>{
+        const typed=$('caOdo').value;
+        kind=kind===b.dataset.kind?null:b.dataset.kind;
+        paint();wire();$('caOdo').value=typed;
+      });
+      $('caSkip').onclick=()=>{box.classList.remove('on');resetAsk();done()};
+      $('caDone').onclick=async()=>{
+        const v=$('caOdo').value.trim(), n=Math.round(Number(v));
+        if(v!==''&&!(n>0))return toast('That reading does not look like a number.');
+        if(v!=='')d.odoB=n;
+        d.kind=kind;
+        box.classList.remove('on');resetAsk();
+        await saveV2(K_DRV,drives);
+        const t=tripRow(d);
+        if(t&&(t.gap||t.off))toast('Saved · the reading is '+
+          Math.round(Math.abs(t.off||t.gap))+' km off what was recorded — open the drive to check.');
+        fetchTripAddrs([d]);
+        done();
+      };
+    };
+    wire();
+  });
+}
+function resetAsk(){const t=$('carAsk').querySelector('.ca-t');if(t)t.textContent='Which car was that?'}
+
+/* Addresses, from where the GPS saw the trip start and end. The first fix is
+   taken once the car is already rolling, so it can be a house or two out;
+   it can be corrected from the drive's sheet. One request a second, as
+   Nominatim asks. */
+function addrFrom(j){
+  const a=(j&&j.address)||{};
+  const street=[a.road||a.pedestrian||a.footway,a.house_number].filter(Boolean).join(' ');
+  const town=a.city||a.town||a.village||a.municipality||'';
+  const line=[street,[a.postcode,town].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return line||(j&&j.display_name)||null;
+}
+async function fetchTripAddrs(list,progress){
+  let ok=0,bad=0,i=0;
+  for(const d of list){
+    for(const end of ['from','to']){
+      if(d[end])continue;
+      const p=end==='from'?d.pts[0]:d.pts[d.pts.length-1];
+      if(!p)continue;
+      if(i++)await new Promise(x=>setTimeout(x,1100));
+      try{
+        const r=await fetchFor('https://nominatim.openstreetmap.org/reverse?format=jsonv2'+
+          '&zoom=18&addressdetails=1&lat='+p[0].toFixed(5)+'&lon='+p[1].toFixed(5),15000);
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const nm=addrFrom(await r.json());
+        if(nm){d[end]=nm;ok++}else bad++;
+      }catch(e){bad++}
+      if(progress)progress(ok,bad);
+    }
+  }
+  if(ok)await saveV2(K_DRV,drives);
+  if(ok&&curDrive&&list.some(d=>d.id===curDrive))renderShCar(curDrive);
+  return {ok,bad};
+}
+
+/* in the drive's sheet, under the car */
+function tripSheetHtml(d){
+  if(!tripCar(d))return '';
+  const r=tripRow(d)||{};
+  const rd=x=>x==null?'–':Math.round(x).toLocaleString();
+  const chk=r.gap?'<div class="tl-warn">'+Math.round(Math.abs(r.gap))+' km '+
+      (r.gap>0?'between the last trip’s end and this one’s start — a trip not recorded?'
+              :'backwards from the last trip’s end — a typo in one of the two?')+'</div>'
+    :r.off?'<div class="tl-warn">The dash says '+Math.round(r.dist)+' km, the GPS '+
+      r.gps.toFixed(1)+'. A trip not recorded, or a typo?</div>':'';
+  return '<div class="cp-t tl-h">Trip log</div>'+
+    '<div class="cp-row">'+KINDS.map(k=>
+      '<button class="cp'+(d.kind===k[0]?' on':'')+'" data-kind="'+k[0]+'">'+k[1]+'</button>').join('')+
+    '</div>'+
+    '<div class="tl-rows">'+
+      '<div><span>Odometer</span><b>'+rd(r.a)+' → '+rd(r.b)+'</b></div>'+
+      '<div><span>Distance</span><b>'+(r.dist!=null?r.dist.toFixed(r.est?1:0):'–')+' km'+
+        (r.est?' <s>estimated from GPS</s>':' <s>GPS '+(r.gps||0).toFixed(1)+'</s>')+'</b></div>'+
+      '<div><span>From</span><b>'+(d.from?esc(d.from):'–')+'</b></div>'+
+      '<div><span>To</span><b>'+(d.to?esc(d.to):'–')+'</b></div>'+
+      (d.route?'<div><span>Route</span><b>'+esc(d.route)+'</b></div>':'')+
+    '</div>'+chk+
+    '<div class="row"><button class="ghost" id="tlEdit">Edit trip details</button>'+
+    ((!d.from||!d.to)?'<button class="ghost" id="tlLook">Look up addresses</button>':'')+
+    '</div>';
+}
+function wireTripSheet(d,id){
+  const box=$('shCar');if(!tripCar(d))return;
+  box.querySelectorAll('[data-kind]').forEach(b=>b.onclick=async()=>{
+    d.kind=d.kind===b.dataset.kind?null:b.dataset.kind;
+    await saveV2(K_DRV,drives);renderShCar(id);
+  });
+  const ed=$('tlEdit');if(ed)ed.onclick=()=>editTrip(d);
+  const lk=$('tlLook');if(lk)lk.onclick=async()=>{
+    lk.disabled=true;lk.textContent='Looking up…';
+    const r=await fetchTripAddrs([d]);
+    renderShCar(id);
+    if(!r.ok)toast('Could not reach the address service — try again in a minute.');
+  };
+}
+function editTrip(d){
+  const r=tripRow(d)||{};
+  openForm({
+    id:'trip.'+d.id, title:'Trip details', save:'Save trip',
+    note:'Blank odometer fields follow on from the trip before and the GPS. '+
+      'The route is only needed when it was not the usual one.',
+    fields:[
+      {k:'a',label:'Odometer at the start',type:'number',value:d.odoA!=null?d.odoA:'',
+       placeholder:r.a!=null?String(Math.round(r.a)):''},
+      {k:'b',label:'Odometer at the end',type:'number',value:d.odoB!=null?d.odoB:'',
+       placeholder:r.b!=null?String(Math.round(r.b)):''},
+      {k:'from',label:'From',type:'text',value:d.from||'',wide:true},
+      {k:'to',label:'To',type:'text',value:d.to||'',wide:true},
+      {k:'route',label:'Route, if not the usual one',type:'text',value:d.route||'',wide:true,
+       hint:'also any private detour on a business trip, with its km'}
+    ],
+    onSave:async v=>{
+      const num=x=>{const t=String(x==null?'':x).trim();if(t==='')return null;
+        const n=Math.round(Number(t));return n>0?n:NaN};
+      const a=num(v.a),b=num(v.b);
+      if(Number.isNaN(a)||Number.isNaN(b))return 'An odometer reading is a whole number of km.';
+      if(a!=null&&b!=null&&b<a)return 'The end reading is lower than the start.';
+      d.odoA=a;d.odoB=b;
+      d.from=String(v.from||'').trim().slice(0,120)||null;
+      d.to=String(v.to||'').trim().slice(0,120)||null;
+      d.route=String(v.route||'').trim().slice(0,200)||null;
+      await saveV2(K_DRV,drives);
+      renderShCar(d.id);render();
+      toast('Trip saved.');
+      return null;
+    }});
+}
+
+/* on the car's card in the Garage */
+function tripCardHtml(c){
+  if(!c.log)return '';
+  const y=tripYear(c), left=PRIVATE_CAP-y.private;
+  const pct=Math.min(100,y.private/PRIVATE_CAP*100);
+  return '<div class="tl-card"><div class="cp-t">Trip log · '+new Date().getFullYear()+'</div>'+
+    '<div class="tl-bar"><i style="width:'+pct.toFixed(1)+'%"'+(left<100?' class="hot"':'')+'></i></div>'+
+    '<div class="c-meta">'+Math.round(y.private)+' of '+PRIVATE_CAP+' km private'+
+      (left>=0?' · '+Math.round(left)+' left':' · <b class="tl-over">'+Math.round(-left)+' over</b>')+
+    '<br>'+Math.round(y.commute)+' km commuting · '+Math.round(y.work)+' km business'+
+    (y.none>0.5?'<br><b class="tl-over">'+Math.round(y.none)+' km not marked</b> — '+
+      'an unmarked trip would be taken as private':'')+
+    (y.checks?'<br><b class="tl-over">'+y.checks+' reading'+(y.checks>1?'s':'')+
+      ' to check</b> — open the drive':'')+
+    (!c.plate||!c.make?'<br>Add the make and plate under Edit — the log needs them.':'')+
+    '</div></div>';
+}
+
+/* The export is in Dutch: it is for the Belastingdienst, not for the app.
+   Semicolons, because Dutch Excel reads a comma as a decimal point, and a
+   byte-order mark so it opens the accents correctly. */
+async function exportTripLog(cid){
+  const c=cars.find(x=>x.id===cid);if(!c)return;
+  const rows=tripLog(c);
+  if(!rows.length)return toast('No trips logged to '+c.name+' yet.');
+  const miss=rows.filter(r=>!r.d.from||!r.d.to).map(r=>r.d);
+  if(miss.length&&navigator.onLine!==false){
+    toast('Looking up '+miss.length+' address'+(miss.length>1?'es':'')+' first…');
+    await fetchTripAddrs(miss,(ok,bad)=>toast('Addresses: '+ok+' found'+(bad?', '+bad+' failed':'')+'…'));
+  }
+  const q=x=>{const t=x==null?'':String(x);return /[;"\n]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t};
+  const dd=t=>{const x=new Date(t);return String(x.getDate()).padStart(2,'0')+'-'+
+    String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear()};
+  const hm=t=>{const x=new Date(t);return String(x.getHours()).padStart(2,'0')+':'+
+    String(x.getMinutes()).padStart(2,'0')};
+  const nr=x=>x==null?'':String(Math.round(x));
+  const dec=x=>x.toFixed(1).replace('.',',');
+  const lines=[];
+  lines.push(['Rittenregistratie',c.make||c.name,c.plate||''].map(q).join(';'));
+  lines.push(['Periode',dd(c.logFrom||rows[0].d.start),
+    c.retired?dd(c.retired):'in gebruik'].map(q).join(';'));
+  lines.push('');
+  lines.push(['Datum','Vertrek','Aankomst','Beginstand','Eindstand','Km','Vertrekadres',
+    'Aankomstadres','Soort rit','Route / omrijden','Bron','GPS km','Controle'].join(';'));
+  rows.forEach(r=>{
+    const d=r.d, end=d.start+(spanOf(d)||d.dur)*1000;
+    lines.push([dd(d.start),hm(d.start),hm(end),nr(r.a),nr(r.b),
+      r.est?dec(r.dist):nr(r.dist),d.from||'',d.to||'',kindLabel(r.kind,true)||'niet ingedeeld',
+      d.route||'',!r.est?'kilometerteller':r.aEst&&r.bEst?'GPS'
+        :r.aEst?'teller, begin geschat':'teller, eind geschat',dec(r.gps),
+      r.gap?(r.gap>0?nr(r.gap)+' km tussen vorige rit en deze':'stand lager dan vorige rit')
+        :r.off?'teller en GPS wijken '+nr(Math.abs(r.off))+' km af':''].map(q).join(';'));
+  });
+  lines.push('');
+  lines.push(['Jaar','Woon-werk km','Zakelijk km','Privé km','Niet ingedeeld km'].join(';'));
+  [...new Set(rows.map(r=>new Date(r.d.start).getFullYear()))].forEach(y=>{
+    const t=tripYear(c,y);
+    lines.push([y,nr(t.commute),nr(t.work),nr(t.private),nr(t.none)].join(';'));
+  });
+  dl('rittenregistratie-'+(c.plate||c.name).replace(/[^\w-]+/g,'')+'-'+
+     new Date().toISOString().slice(0,10)+'.csv','﻿'+lines.join('\r\n'),'text/csv');
+  toast('Trip log downloaded.');
 }
 
 /* ============ regions ============
@@ -5653,7 +5961,13 @@ function editCar(id){
       {k:'l100',label:'Average L/100 km',type:'number',value:c&&c.l100?c.l100:'',
        hint:'optional, until two fill-ups measure it'},
       {k:'price',label:'Fuel price €/L',type:'number',value:c&&c.price?c.price:'',
-       hint:'optional, until a fill-up says otherwise'}
+       hint:'optional, until a fill-up says otherwise'},
+      {k:'make',label:'Make and model',type:'text',value:c&&c.make?c.make:'',
+       hint:'for the trip log'},
+      {k:'plate',label:'Plate',type:'text',value:c&&c.plate?c.plate:'',
+       hint:'for the trip log'},
+      {k:'log',label:'Keep a trip log (rittenregistratie)',type:'check',
+       value:!!(c&&c.log),wide:true}
     ],
     onSave:async v=>{
       const name=String(v.name||'').trim();
@@ -5668,6 +5982,10 @@ function editCar(id){
         l100:v.l100?Number(v.l100)||null:null,
         price:v.price?Number(v.price)||null:null,
         year:yrOk?yr:null,
+        make:String(v.make||'').trim().slice(0,40)||null,
+        plate:String(v.plate||'').trim().toUpperCase().slice(0,12)||null,
+        log:!!v.log,
+        logFrom:v.log?((c&&c.logFrom)||Date.now()):((c&&c.logFrom)||null),
         services:c?c.services||[]:[],
         /* Object.assign below writes every key of rec over the car, so a flag
            this form never asks about has to be carried through it or editing a
