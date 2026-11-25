@@ -15,3 +15,6 @@ Thumbs.db
 # no extension: it must cover .json and the gzipped copy alike.
 odo-backup-*
 *.gpx
+
+# smoke-test scratch: a copy of the backup, so the same rule applies.
+_smoke*

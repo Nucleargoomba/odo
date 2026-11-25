@@ -22,6 +22,22 @@ new N is a guaranteed miss and the browser has to go to the network — without
 it, a worker that caches `index.html` keeps serving the old page, which asks for
 the old script, and no fix can reach the phone.
 
+`tools/` is not part of the site and is not deployed.
+
+### Checking a build before it ships
+
+There is no node on this machine and pushing to main *is* the deploy, so a
+syntax error reaches the phone before anything tells you about it. `python
+tools/smoke.py` loads the real page in headless Edge and reports every error it
+raises; with a JavaScript expression as its argument it evaluates that inside
+the loaded app, and `__load()` reads in the backup and brings it up to date the
+way start-up does, so a number can be checked against the recorded drives:
+
+    python tools/smoke.py "(function(){__load();return territory().km2})()"
+
+It caught an unterminated string in this build. It is a smoke test and not a
+test suite: it proves the page loads and lets you measure things in it.
+
 Then open the site in Chrome and use "Add to Home screen". The service worker
 serves the app shell network first, so a deploy lands on the next load rather
 than the one after; the cache is there for offline use. If a new worker takes
@@ -271,12 +287,13 @@ Per drive: distance, a flat logging bonus, long run, after dark, smoothness,
 twistiness (ramping in from 80°/km), new road, climbing, endurance over two
 hours, rain, snow, fog, driving through sunrise or sunset, filling an enclosed
 gap in your coverage, the first run down a road in the opposite direction, a
-clean run, and pushing one of your eight borders outward.
+clean run, pushing one of your eight borders outward, and the ground a drive
+was the first to cover.
 
 Standing pots: day streak, completed weekly challenges, three or more distinct
 routes in a week, each logged service (more if done before it fell due), and
 any tank that beat your own measured consumption,
-and each region tier reached.
+each region tier reached, and each rung of kilometres together with a car.
 
 Multiplying the per-drive total: the age of the car that drove it.
 
@@ -371,6 +388,39 @@ of them.
 The first drive into an empty sector earns nothing — there was no border there
 to push.
 
+## Ground you have claimed
+
+The borders measure how far out you reached in each of eight directions. They
+cannot see sideways: a run that loops east and comes back north-east covers a
+great deal of ground and pushes no border at all.
+
+So ground is counted separately, on a third grid sitting between the 100 m
+coverage cells and the 10 km regions — the number of one-kilometre squares
+holding a road you have driven. Every square counted is one the car has
+actually been inside. There is no radius to guess and no denominator to fake.
+
+The convex hull is reported beside it and is only ever called reach. On the 66
+recorded drives the hull encloses 5 202 km² against 568 km² driven in, so
+calling the hull your territory would claim nine times more ground than has
+ever been seen out of a window — the same lie the region tiers told when they
+were called Owned.
+
+Claims are replayed in the order the drives were made, the way `markPbs()`,
+`firstTimeSegments()` and `borderPushes()` are, so a drive keeps the ground it
+claimed on the day even after later drives fill in around it. It pays 3 xp per
+km², once, to the drive that got there first.
+
+Across the 66 that is 568 km² over 26 drives, a median claim of 6 km² and a
+best of 119 — about 1 700 xp, or 6% of what the same drives earned for their
+distance. Two thirds of drives claim nothing, which is the shape wanted: it
+pays for going somewhere and stays quiet about the commute.
+
+The gap between two fixes is joined up the way the coverage grid joins it, or a
+motorway square gets skipped between one fix and the next. Past three
+kilometres the straight line stops being a road and starts being a guess about
+a dropout, so a longer gap is left as a gap rather than claiming ground with no
+trace under it.
+
 ## An old car earns more
 
 A car can carry the year it was built, and earns one percent more xp per year
@@ -393,15 +443,74 @@ A car with no year set earns exactly what it earned before.
 
 ## Which car was that
 
-After a drive is saved, the Drive tab asks which car it was, with a button per
-car you have entered and the active one already chosen. Asked afterwards
-rather than before, because the answer is obvious once you are standing next
-to the thing, and a question before the key turns is one more screen between
-you and driving. One car is one glance and no taps.
+After a drive is saved, a popup asks which car it was, with a button per car
+you have entered and the active one already chosen. Asked afterwards rather
+than before, because the answer is obvious once you are standing next to the
+thing, and a question before the key turns is one more screen between you and
+driving. With one car there is nothing to ask and it is not asked.
+
+It used to be a box under the Start button, which was easy to scroll past and
+sat under the level-up screen when a drive earned one. It is a popup now, and
+it comes before the xp is announced: the xp depends on the car, so a number
+shown before the answer could be the wrong one. The drive is saved to the
+active car before the question appears, so closing the app with it open loses
+nothing. Whatever you pick becomes the active car for the next drive.
+
+Any drive can be moved afterwards from its sheet, where a row of cars sits
+under the grade. Every car is offered there, retired ones included — fixing
+last spring's drives is exactly when the car you sold is the right answer.
+Moving a past drive leaves the active car alone.
 
 Changing the answer re-earns the drive: the age bonus is worked out per drive
 from the car that drove it, so moving a drive between a 1991 car and a new one
 moves its xp with it.
+
+## A car you have a history with
+
+Two cars side by side answers which is thirstier and which costs more to move.
+That is a comparison, and a comparison is not a history: nothing in the Garage
+said what you and a particular car had done together, which is the thing you
+actually remember about a car.
+
+Each car now carries its own: kilometres together, hours at the wheel, its
+longest drive, the fastest it has been seen, its best graded drive, the new
+road it found, what it climbed and the xp earned at its wheel — and the date
+you first drove it. None of it is stored. Sell a car and its record is already
+frozen, because the drives that made it do not change.
+
+The ladder is kilometres you have driven it: Getting acquainted at 100 km, then
+Familiar, Well acquainted, Old friends, Inseparable, and Part of the furniture
+at 100 000. Each rung is a standing pot of 60 xp and cannot be lost.
+
+The names describe how well you know the car and never the car itself. That is
+the same line the region tiers had to be walked back to — "Owned" promised a
+share of the roads that exist and was a lie, where "Been through" only reported
+the distance it had measured. Kilometres together is a fact about the two of
+you, so naming the rungs after the acquaintance is honest.
+
+Paced against the recorded driving: 2 626 km in 26 days is about 100 km a day,
+which puts Familiar in the first month, Old friends inside a year and the top
+rung some years out. A ladder whose last rung arrives in a fortnight is not a
+ladder.
+
+Service state is said once, in a line — all in date and how far to the next
+one, or how many intervals are overdue. It is never a penalty. A busy month is
+not the car's doing, and docking xp for one would make the Garage a thing to
+avoid rather than a thing to keep up.
+
+### Retiring a car
+
+A car you no longer have stops being offered as the car you are driving today,
+and nothing else about it changes. Its drives keep pointing at it, its xp stays
+where it was earned, its rungs keep paying, and its record moves to Past cars
+with the date you retired it. It leaves the comparison table, because comparing
+what the new car costs to move against one that left the drive last spring
+answers a question nobody has.
+
+After a drive it is still offered for one already logged to it, and a
+drive's sheet offers it always —
+hiding it there would make the answer unreadable and the choice impossible to
+undo. Bringing it back is one button.
 
 ## Fog of war
 

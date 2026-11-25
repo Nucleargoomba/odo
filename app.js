@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-09-29 · five new stats: grades, time, days, drive length, cost · assets v40';
+const BUILD='2026-11-25 · which car was that, asked properly and fixable after · assets v42';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -843,6 +843,184 @@ function bordersHtml(){
     '<div class="bd-list">'+list+'</div>';
 }
 
+/* Everything a stored drive has to be brought up to date with, in one named
+   place. It ran inside the start-up block, which meant the only way to see a
+   drive the way the app sees it was to start the app: a grade worked out from
+   a freshly imported backup came out of a different set of components than the
+   same drive on the phone, because these fields had not been filled in yet. */
+function migrateDrives(){
+  let dirty=false;
+  drives.forEach(d=>{
+    // twistV 3: earlier figures counted GPS wobble as cornering, so recompute
+    // once rather than trusting what is stored
+    if(d.twistV!==3){d.twist=twistOf(d.pts);d.twistV=3;dirty=true}
+    if(d.newCells===undefined){d.newCells=0;dirty=true}
+    if(d.accel===undefined){d.accel=accelOf(d);dirty=true}
+    if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
+    // cornering and braking worked out from gps, for phones that report no
+    // motion sensor. Kept beside d.g and d.smooth, never written over them.
+    if(d.ggV!==3){const gg=ggOf(d);
+      d.gGps=gg?gg.g:null;
+      d.smoothGps=gg?gg.smooth:null;
+      d.ggV=3;dirty=true}
+  });
+  return dirty;
+}
+
+/* ============ territory ============
+   A third grid, between the 100 m coverage cells and the 10 km regions.
+   Ground claimed is the number of one-kilometre squares holding a road you
+   have driven, so every square counted is one the car has actually been
+   inside. There is no radius to guess here and no denominator to fake: the
+   grid is the same choice the coverage map already makes at 100 m and the
+   region list makes at 10 km.
+
+   The convex hull is reported beside it as reach and never as ground. On the
+   66 recorded drives the hull encloses 5 215 km² against 579 km² driven in,
+   so calling the hull territory would claim nine times more ground than has
+   ever been seen out of a window — the same lie a tier called "Owned" told
+   before the region tiers were renamed. */
+const TILE=1000;                       // metres
+const TERR_XP=3;                       // xp per km² claimed for the first time
+const TERR_FILL=3000;                  // m: longest gap worth joining up
+let terrCache=null;
+function tileKey(lat,lng){
+  const dLat=TILE/111320, dLng=TILE/(111320*Math.cos(lat*Math.PI/180));
+  return Math.round(lat/dLat)+':'+Math.round(lng/dLng);
+}
+/* Replayed in the order the drives were made, the way markPbs(),
+   firstTimeSegments() and borderPushes() are, so a drive keeps the ground it
+   claimed on the day even after later drives fill in around it. */
+function territory(){
+  if(terrCache)return terrCache;
+  const seen=new Set(), per=new Map(), when=new Map();
+  drives.slice().sort((a,b)=>a.start-b.start).forEach(d=>{
+    if(!d.pts)return;
+    let got=0;
+    const add=(la,lo)=>{
+      const k=tileKey(la,lo);
+      if(seen.has(k))return;
+      seen.add(k);when.set(k,d.start);got++;
+    };
+    for(let i=0;i<d.pts.length;i++){
+      const p=d.pts[i];
+      add(p[0],p[1]);
+      if(i){
+        /* The coverage grid joins up the gap between two fixes so a fast
+           stretch does not leave holes, and the same is needed here or a
+           motorway square gets skipped between one fix and the next. Past
+           three kilometres the straight line stops being a road and starts
+           being a guess about a dropout, so the gap is left as a gap rather
+           than claiming ground with no trace under it. */
+        const q=d.pts[i-1], gap=hav(q[0],q[1],p[0],p[1]);
+        if(gap<=TERR_FILL){
+          const steps=Math.floor(gap/300);
+          for(let s=1;s<steps;s++){
+            const f=s/steps;
+            add(q[0]+(p[0]-q[0])*f, q[1]+(p[1]-q[1])*f);
+          }
+        }
+      }
+    }
+    if(got)per.set(d.id,got);
+  });
+  const each=(TILE/1000)*(TILE/1000);
+  return terrCache={tiles:seen,per,when,km2:seen.size*each,each};
+}
+/* The smallest shape containing every point you have driven. Reported as
+   reach, which is what it measures. Every twentieth fix is plenty at this
+   scale — the hull only ever turns on the outermost handful of points. */
+function reachKm2(){
+  const raw=[];
+  drives.forEach(d=>{
+    const a=d.pts||[];
+    for(let i=0;i<a.length;i+=FOG_STEP)raw.push(a[i]);
+    if(a.length)raw.push(a[a.length-1]);
+  });
+  if(raw.length<3)return 0;
+  const lat0=raw.reduce((s,p)=>s+p[0],0)/raw.length;
+  const mLat=111320, mLng=111320*Math.cos(lat0*Math.PI/180);
+  const pts=raw.map(p=>[p[1]*mLng,p[0]*mLat]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const cross=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+  const half=list=>{
+    const h=[];
+    for(const p of list){
+      while(h.length>=2&&cross(h[h.length-2],h[h.length-1],p)<=0)h.pop();
+      h.push(p);
+    }
+    return h;
+  };
+  const up=half(pts), down=half(pts.slice().reverse());
+  const hull=up.slice(0,-1).concat(down.slice(0,-1));
+  if(hull.length<3)return 0;
+  let a=0;
+  for(let i=0;i<hull.length;i++){
+    const p=hull[i], q=hull[(i+1)%hull.length];
+    a+=p[0]*q[1]-q[0]*p[1];
+  }
+  return Math.abs(a)/2/1e6;
+}
+function territoryHtml(){
+  const t=territory();
+  if(t.tiles.size<2)return '<div class="empty" style="border:0">'+
+    'Drive a little and the ground you have been over starts filling in here.</div>';
+  const reach=reachKm2();
+  const claims=[...t.per.entries()]
+    .map(e=>({d:drives.find(x=>x.id===e[0]),n:e[1]}))
+    .filter(x=>x.d).sort((a,b)=>b.n-a.n);
+  const big=claims[0];
+  const last=claims.slice().sort((a,b)=>b.d.start-a.d.start)[0];
+  const when=ts=>new Date(ts).toLocaleDateString(undefined,
+    {day:'numeric',month:'short',year:'numeric'});
+  const row=(k,v,w)=>'<div class="bd-row"><span class="k">'+k+'</span>'+
+    '<span class="v">'+v+'</span><span class="w">'+(w||'')+'</span></div>';
+  const rows=
+    row('Squares driven in',t.tiles.size.toLocaleString(),'of 1 km each')+
+    (reach?row('Reach',Math.round(reach).toLocaleString()+' km&sup2;','hull, not ground'):'')+
+    row('Drives that claimed ground',claims.length+' of '+drives.length)+
+    (big?row('Biggest claim',big.n.toLocaleString()+' km&sup2;',when(big.d.start)):'')+
+    (last?row('Last new ground',last.n.toLocaleString()+' km&sup2;',when(last.d.start)):'');
+  const note=reach>t.km2*1.5
+    ? '<div class="ch-note">The hull around your driving encloses <b>'+
+      (reach/t.km2).toFixed(1)+'&times;</b> more than you have actually been inside, '+
+      'which is why the ground figure counts squares you drove in and the hull is '+
+      'only ever called reach.</div>'
+    : '';
+  return '<div class="cap">Ground claimed &middot; '+TERR_XP+
+    ' xp per km&sup2;, paid once, to the drive that reached it</div>'+
+    '<div class="terr-head"><div class="terr-n">'+Math.round(t.km2).toLocaleString()+
+    '<s>km&sup2; driven in</s></div></div>'+
+    chartTerritory()+'<div class="bd-list">'+rows+'</div>'+note;
+}
+function chartTerritory(){
+  const t=territory();
+  const ds=drives.slice().sort((a,b)=>a.start-b.start);
+  const m=new Map();
+  ds.forEach(d=>{
+    const dt=new Date(d.start), k=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+    m.set(k,(m.get(k)||0)+(t.per.get(d.id)||0)*t.each);
+  });
+  const keys=[...m.keys()].sort().slice(-14);
+  if(keys.length<2)return '';
+  let run=0;
+  const cum=keys.map(k=>run+=m.get(k));
+  const a=axes({h:150,pl:38});
+  const max=niceMax(cum[cum.length-1]);
+  const bw=(a.w-a.pl-a.pr)/keys.length;
+  let out='';
+  keys.forEach((k,i)=>{
+    const x=a.pl+i*bw, h=(a.y(0)-a.pt)*(cum[i]/max);
+    out+='<rect class="chbar teal" x="'+(x+2).toFixed(1)+'" y="'+(a.y(0)-h).toFixed(1)+
+      '" width="'+(bw-4).toFixed(1)+'" height="'+h.toFixed(1)+'"/>';
+    if(i===0||i===keys.length-1||keys.length<8)
+      out+=txt(x+bw/2,a.h-6,k.slice(2).replace('-','/'),'tick','middle');
+  });
+  out+=txt(a.pl-4,a.y(1)+4,String(Math.round(max)),'tick','end');
+  out+=txt(a.pl-4,a.y(0),'0','tick','end');
+  out+=txt(a.pl+4,a.pt+6,'km² driven in, running total','tick');
+  return svgWrap(out,{h:150});
+}
+
 /* ============ badges ============ */
 const BADGES=[
   {ic:'🔑',n:'First drive',f:()=>drives.length>=1},
@@ -1067,8 +1245,12 @@ function bestIn(vals){
   return vals.filter(v=>v===vals[b]).length>1?-1:b;
 }
 function compareHtml(){
-  if(cars.length<2)return '';
-  const S=cars.map(carStats);
+  /* A car you no longer have is not in the running: comparing what the new one
+     costs to move against a car that left the drive last spring answers a
+     question nobody has. Its record is kept, on its own card. */
+  const live=cars.filter(c=>!c.retired);
+  if(live.length<2)return '';
+  const S=live.map(carStats);
   const cell=(txt,cls)=>'<div class="cmp-v'+(cls?' '+cls:'')+'">'+txt+'</div>';
   const row=(label,vals,win,note)=>
     '<div class="cmp-k">'+esc(label)+(note?'<s>'+esc(note)+'</s>':'')+'</div>'+
@@ -1113,6 +1295,117 @@ function compareHtml(){
 }
 
 /* ============ garage ============ */
+/* ============ a car as its own character ============
+   Two cars side by side answered which is thirstier and which costs more to
+   move. That is a comparison, and a comparison is not a history: nothing in
+   the Garage said what you and a particular car had done together, which is
+   the thing you actually remember about a car.
+
+   The ladder is kilometres you have driven it, and the names describe how well
+   you know the car rather than claiming anything about the car itself. That is
+   the same line the region tiers had to be walked back to: "Owned" promised a
+   share of the roads that exist and was a lie, where "Been through" only
+   reported the distance it had measured. Kilometres together is a fact about
+   the two of you, so naming it after the acquaintance is honest.
+
+   Paced against the recorded driving: 2 626 km in 26 days is about 100 km a
+   day, so Familiar lands in the first month, Old friends inside a year and the
+   top rung some years out. A ladder whose last rung arrives in a fortnight is
+   not a ladder. */
+const CAR_TIERS=[[100,'Getting acquainted'],[1000,'Familiar'],
+  [5000,'Well acquainted'],[20000,'Old friends'],[50000,'Inseparable'],
+  [100000,'Part of the furniture']];
+const CAR_TIER_XP=60;          // a standing pot per rung, per car
+function carDrives(c){return drives.filter(d=>d.carId===c.id)}
+function carBond(c){
+  const d=km(carDrives(c).reduce((a,x)=>a+x.dist,0));
+  const t=pickTier(CAR_TIERS,d);
+  const from=t.tier?t.tier[0]:0;
+  const to=t.next?t.next[0]:null;
+  return {km:d,tier:t.tier,next:t.next,
+    pct:to?Math.max(2,Math.min(100,(d-from)/(to-from)*100)):100,
+    reached:CAR_TIERS.filter(x=>d>=x[0]).length};
+}
+/* Standing, like the region tiers and for the same reason: a rung you reached
+   with a car is a thing that happened, and selling the car does not unhappen
+   it. Retired cars keep paying. */
+function carBondXp(){
+  return cars.reduce((a,c)=>a+carBond(c).reached*CAR_TIER_XP,0);
+}
+/* The car's own history, which is only ever the drives it did. Nothing here is
+   stored: sell a car and its record is already frozen, because the drives that
+   made it do not change. */
+function carRecords(c){
+  const ds=carDrives(c);
+  if(!ds.length)return null;
+  const long=ds.reduce((b,d)=>d.dist>b.dist?d:b,ds[0]);
+  const top=ds.reduce((b,d)=>(d.top||0)>(b.top||0)?d:b,ds[0]);
+  let best=null;
+  ds.forEach(d=>{const g=gradeOf(d);if(g&&(!best||g.score>best.g.score))best={d,g:g}});
+  const first=ds.reduce((b,d)=>d.start<b.start?d:b,ds[0]);
+  return {
+    n:ds.length,
+    km:km(ds.reduce((a,d)=>a+d.dist,0)),
+    hours:ds.reduce((a,d)=>a+d.dur,0)/3600,
+    days:new Set(ds.map(d=>dayKey(d.start))).size,
+    newKm:ds.reduce((a,d)=>a+(d.newCells||0),0)*CELL/1000,
+    climb:ds.reduce((a,d)=>a+(gainOf(d)||0),0),
+    xp:ds.reduce((a,d)=>a+driveXp(d),0),
+    long,top,best,first
+  };
+}
+/* Whether the car is in date, said once. The bars underneath already show each
+   interval; what was missing was the single line you want at a glance. It is
+   never a penalty — a busy month is not the car's fault and docking xp for one
+   would make the Garage a thing to avoid rather than keep up. */
+function carHealth(c){
+  const svc=c.services||[];
+  if(!svc.length)return null;
+  const total=carKm(c);
+  const left=svc.map(s=>s.lastKm+s.everyKm-total);
+  const over=left.filter(v=>v<=0).length;
+  const soon=left.filter(v=>v>0&&v<=500).length;
+  const nearest=Math.min.apply(null,left.filter(v=>v>0).concat([Infinity]));
+  if(over)return {cls:'due',txt:over+' interval'+(over>1?'s':'')+' overdue'};
+  if(soon)return {cls:'soon',txt:soon+' interval'+(soon>1?'s':'')+' due within 500 km'};
+  if(isFinite(nearest))return {cls:'',txt:'all in date · next in '+
+    Math.round(nearest).toLocaleString()+' km'};
+  return null;
+}
+function carCharHtml(c){
+  const b=carBond(c), r=carRecords(c), h=carHealth(c);
+  const when=ts=>new Date(ts).toLocaleDateString(undefined,
+    {day:'numeric',month:'short',year:'numeric'});
+  const row=(k,v,w)=>'<div class="bd-row"><span class="k">'+k+'</span>'+
+    '<span class="v">'+v+'</span><span class="w">'+(w||'')+'</span></div>';
+  let out='<div class="char">';
+  out+='<div class="char-top"><div class="char-t">'+
+    (b.tier?esc(b.tier[1]):'Just met')+'</div>'+
+    '<div class="char-km">'+Math.round(b.km).toLocaleString()+'<s>km together</s></div></div>';
+  out+='<div class="char-bar"><i style="width:'+b.pct.toFixed(0)+'%"></i></div>';
+  out+='<div class="char-next">'+(b.next
+    ? Math.round(b.next[0]-b.km).toLocaleString()+' km to '+esc(b.next[1])
+    : 'the last rung on the ladder')+
+    ' · '+b.reached+' of '+CAR_TIERS.length+' reached, '+
+    (b.reached*CAR_TIER_XP)+' xp standing</div>';
+  if(h)out+='<div class="char-h '+h.cls+'">'+h.txt+'</div>';
+  if(r){
+    out+='<div class="bd-list">'+
+      row('Drives',r.n.toLocaleString(),r.days+' separate day'+(r.days>1?'s':''))+
+      row('At the wheel',r.hours.toFixed(1)+' h')+
+      row('Longest drive',km(r.long.dist).toFixed(1)+' km',when(r.long.start))+
+      (r.top&&r.top.top?row('Fastest seen',Math.round(r.top.top*3.6)+' km/h',when(r.top.start)):'')+
+      (r.best?row('Best drive',r.best.g.letter+' · '+r.best.g.score+'/100',when(r.best.d.start)):'')+
+      (r.newKm>0?row('New road found',r.newKm.toFixed(1)+' km'):'')+
+      (r.climb>=10?row('Climbed',Math.round(r.climb).toLocaleString()+' m'):'')+
+      row('Earned at its wheel',Math.round(r.xp).toLocaleString()+' xp')+
+      row('First drive together','',when(r.first.start))+
+    '</div>';
+  }
+  out+='</div>';
+  return out;
+}
+
 function renderCars(){
   {const cmp=$('carCompare');if(cmp)cmp.innerHTML=compareHtml();}
   const box=$('cars');
@@ -1120,7 +1413,10 @@ function renderCars(){
     box.innerHTML='<div class="empty">No car yet.<br>Add one to track service intervals and fuel.</div>';
     return;
   }
-  box.innerHTML=cars.map(c=>{
+  const live=cars.filter(c=>!c.retired);
+  const gone=cars.filter(c=>c.retired)
+    .sort((a,b)=>b.retired-a.retired);
+  box.innerHTML=live.map(c=>{
     const total=carKm(c), mine=km(drives.filter(d=>d.carId===c.id).reduce((a,d)=>a+d.dist,0));
     const svc=(c.services||[]).map(s=>{
       const due=s.lastKm+s.everyKm, left=due-total;
@@ -1143,15 +1439,53 @@ function renderCars(){
       (c.year?' · '+c.year+' · +'+
         Math.round(carAgeAt(c,Date.now())*AGE_PCT*100)+'% xp':'')+
       (settings.activeCar===c.id?' · active':'')+'</div>'+
+      carCharHtml(c)+
       '<div class="svc">'+(svc||'<div class="c-meta">No service intervals set.</div>')+'</div>'+
       renderFuel(c)+
       '<div class="row" style="margin-top:10px">'+
         (settings.activeCar===c.id?'':'<button class="ghost" data-use="'+c.id+'">Use this car</button>')+
         '<button class="ghost" data-svc="'+c.id+'">Add interval</button>'+
         '<button class="ghost" data-edit="'+c.id+'">Edit</button>'+
+        '<button class="ghost" data-retire="'+c.id+'">Retire</button>'+
       '</div></div>';
   }).join('');
 
+  /* A car you no longer have. Nothing is deleted and no xp moves: the drives
+     keep pointing at it, so its record is already frozen by the fact that the
+     drives that made it cannot change. It just stops being offered as the car
+     you are driving today. */
+  if(gone.length)box.innerHTML+='<div class="past-h">Past cars</div>'+gone.map(c=>
+    '<div class="card past">'+
+      '<div class="c-head"><div class="c-name">'+esc(c.name)+'</div>'+
+      '<div class="c-odo">'+Math.round(carKm(c)).toLocaleString()+' km</div></div>'+
+      '<div class="c-meta">'+(c.year?c.year+' · ':'')+'retired '+
+      new Date(c.retired).toLocaleDateString(undefined,
+        {day:'numeric',month:'short',year:'numeric'})+'</div>'+
+      carCharHtml(c)+
+      '<div class="row" style="margin-top:10px">'+
+        '<button class="ghost" data-unretire="'+c.id+'">Bring it back</button>'+
+      '</div></div>').join('');
+
+  box.querySelectorAll('[data-retire]').forEach(b=>b.onclick=async()=>{
+    const c=cars.find(x=>x.id===b.dataset.retire);
+    if(!c)return;
+    if(!confirm('Retire '+c.name+'?\n\n'+
+      'Its drives, xp and record are all kept. It '+
+      'stops being offered as the car you are driving.'))return;
+    c.retired=Date.now();
+    /* the active car cannot be one you no longer have */
+    if(settings.activeCar===c.id){
+      const next=cars.find(x=>!x.retired);
+      settings.activeCar=next?next.id:null;
+      await saveV2(K_SET,settings);
+    }
+    await saveV2(K_CAR,cars);render();toast(c.name+' retired · its record is kept.')});
+  box.querySelectorAll('[data-unretire]').forEach(b=>b.onclick=async()=>{
+    const c=cars.find(x=>x.id===b.dataset.unretire);
+    if(!c)return;
+    c.retired=null;
+    if(!settings.activeCar){settings.activeCar=c.id;await saveV2(K_SET,settings)}
+    await saveV2(K_CAR,cars);render();toast(c.name+' is back in the garage.')});
   box.querySelectorAll('[data-use]').forEach(b=>b.onclick=async()=>{
     settings.activeCar=b.dataset.use;await saveV2(K_SET,settings);render();toast('Active car set.')});
   box.querySelectorAll('[data-svc]').forEach(b=>b.onclick=()=>addService(b.dataset.svc));
@@ -1319,7 +1653,6 @@ async function start(){
   const gotMotion=await askMotion();
   if(!gotMotion)toast('No motion sensor — g and smoothness will be blank.');
   $('btnRec').textContent='Stop';$('btnRec').classList.add('live');
-  {const cp=$('carPick');if(cp)cp.classList.remove('on')}
   $('livePanel').classList.add('on');
   setPhaseUI();
   watchId=navigator.geolocation.watchPosition(onPos,onErr,
@@ -1522,12 +1855,12 @@ async function stop(){
   d.pts.forEach(p=>{const k=cellKey(p[0],p[1]);if(!known.has(k))fresh.add(k)});
   d.newCells=fresh.size;
   const before=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
-  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;
+  drives.push(d);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;terrCache=null;
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
   render();
-  showCarPick(d.id);
+  await askCar(d);
   const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
   const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
   floatXp(driveXp(d));
@@ -1574,15 +1907,14 @@ function openDrive(id){
     :'Waiting in traffic, counted in the time.';
   const gv=gOf(d);
   $('shG').innerHTML=gv!=null?gv.toFixed(2)+(gFromGps(d)?'<s>gps</s>':''):'–';
-  const l=fuelOf(d),cst=costOf(d);
-  $('shFuel').innerHTML=l!=null?(l.toFixed(1)+' L'+(cst?'<s>€'+cst.toFixed(2)+'</s>':'')):'–';
+  fuelCell(d);
   $('shElev').innerHTML=elevSvg(d);
   $('shGg').innerHTML=ggSvg(d);
   $('shGrade').innerHTML=gradeHtml(d);
   $('sheet').classList.add('on');
   $('shDel').onclick=async()=>{
     if(!confirm('Delete this drive? It cannot be recovered.'))return;
-    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;roadCache=null;await saveV2(K_DRV,drives);
+    drives=drives.filter(x=>x.id!==id);coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;terrCache=null;roadCache=null;await saveV2(K_DRV,drives);
     $('sheet').classList.remove('on');render();toast('Drive deleted.');
   };
   setTimeout(()=>{
@@ -1724,30 +2056,65 @@ $('btnAll').onclick=()=>{
 /* ---------- which car was that? ----------
    Asked after the drive rather than before it. The answer is obvious once you
    are standing next to the thing, and a question before the key turns is one
-   more screen between you and driving. The car that drove it is already set
-   from the active car, so one car is one glance and no taps.
+   more screen between you and driving.
 
-   Changing it re-earns the drive: the age bonus is worked out per drive from
-   the car that drove it, so moving a drive between a 1991 car and a new one
-   moves its xp too. */
-function showCarPick(id){
-  const box=$('carPick');
-  if(!box)return;
-  const d=drives.find(x=>x.id===id);
-  if(!d||cars.length<1){box.classList.remove('on');box.innerHTML='';return}
-  box.innerHTML='<div class="cp-t">Which car was that?</div>'+
-    '<div class="cp-row">'+cars.map(c=>
-      '<button class="cp'+(d.carId===c.id?' on':'')+'" data-car="'+c.id+'">'+
-      esc(c.name)+(c.year?'<s>'+c.year+'</s>':'')+'</button>').join('')+'</div>';
+   It is a popup and not a box under the Start button, because the box was
+   easy to scroll past and sat under the level-up screen when there was one.
+   It comes before the xp is shown: the age bonus is worked out from the car
+   that drove it, so xp announced before the answer could be the wrong number.
+
+   The drive is already saved to the active car before the question is asked,
+   so closing the app with it open loses nothing. One car is not a question
+   and is never asked. */
+function carButtons(list,sel){
+  return list.map(c=>
+    '<button class="cp'+(sel===c.id?' on':'')+(c.retired?' old':'')+'" data-car="'+c.id+'">'+
+    esc(c.name)+'<s>'+[c.year||'',c.retired?'retired':''].filter(Boolean).join(' · ')+
+    '</s></button>').join('');
+}
+function askCar(d){
+  const box=$('carAsk');
+  const pick=cars.filter(c=>!c.retired||d.carId===c.id);
+  if(!box||!pick.length||(pick.length<2&&d.carId))return Promise.resolve();
+  $('caSub').textContent=km(d.dist).toFixed(1)+' km · '+hms(d.dur);
+  $('caList').innerHTML=carButtons(pick,d.carId);
   box.classList.add('on');
+  return new Promise(done=>{
+    $('caList').querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
+      box.classList.remove('on');
+      if(d.carId!==b.dataset.car){
+        d.carId=b.dataset.car;
+        await saveV2(K_DRV,drives);
+        render();
+      }
+      // the next drive is most likely in the same car
+      if(settings.activeCar!==d.carId){settings.activeCar=d.carId;await saveV2(K_SET,settings)}
+      done();
+    });
+  });
+}
+
+/* The same question, asked again of any drive from its sheet, for the ones
+   that went to the wrong car. Every car is offered, retired ones included:
+   fixing last spring's drives is exactly when the car you sold is the right
+   answer. Changing it here leaves the active car alone — correcting the past
+   says nothing about what you are driving now. */
+function fuelCell(d){
+  const l=fuelOf(d),cst=costOf(d);
+  $('shFuel').innerHTML=l!=null?(l.toFixed(1)+' L'+(cst?'<s>€'+cst.toFixed(2)+'</s>':'')):'–';
+}
+function renderShCar(id){
+  const box=$('shCar');if(!box)return;
+  const d=drives.find(x=>x.id===id);
+  if(!d||!cars.length){box.innerHTML='';return}
+  const list=cars.filter(c=>!c.retired).concat(cars.filter(c=>c.retired));
+  box.innerHTML='<div class="cp-t">Car</div><div class="cp-row">'+carButtons(list,d.carId)+'</div>';
   box.querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
     if(d.carId===b.dataset.car)return;
     d.carId=b.dataset.car;
-    settings.activeCar=d.carId;
     await saveV2(K_DRV,drives);
-    await saveV2(K_SET,settings);
-    const c=cars.find(x=>x.id===d.carId);
-    render();showCarPick(id);
+    const c=carOf(d);
+    renderShCar(id);renderXpBreak(id);fuelCell(d);render();
     toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
   });
 }
@@ -2391,7 +2758,7 @@ $('fileIn').onchange=e=>{
         await saveV2(K_CAR,cars);
       }
       if(raw.settings){settings=Object.assign(settings,raw.settings);await saveV2(K_SET,settings)}
-      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;await saveV2(K_DRV,drives);render();
+      coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;terrCache=null;await saveV2(K_DRV,drives);render();
       toast(add.length+' drives restored.');
     }catch(err){toast("That file isn't an Odo backup.")}
     e.target.value='';
@@ -3012,7 +3379,7 @@ $('gpxIn').onchange=async e=>{
       inc.forEach(d=>{if(!have.has(d.id)&&d.dist>150){drives.push(d);added++}});
     }catch(err){}
   }
-  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;await saveV2(K_DRV,drives);render();
+  coverCache=null;roadCache=null;shapeCache=null;routeElevCache=null;borderCache=null;fogCache=null;regionCache=null;regionNameCache=null;terrCache=null;await saveV2(K_DRV,drives);render();
   toast(added?added+' tracks imported.':'Nothing usable in that file.');
   e.target.value='';
 };
@@ -3068,21 +3435,7 @@ document.querySelectorAll('#modeSel button').forEach(b=>{
 
   // one-off migration: copy anything still living in localStorage into IndexedDB,
   // and work out twistiness for drives recorded before it existed
-  let dirty=false;
-  drives.forEach(d=>{
-    // twistV 3: earlier figures counted GPS wobble as cornering, so recompute
-    // once rather than trusting what is stored
-    if(d.twistV!==3){d.twist=twistOf(d.pts);d.twistV=3;dirty=true}
-    if(d.newCells===undefined){d.newCells=0;dirty=true}
-    if(d.accel===undefined){d.accel=accelOf(d);dirty=true}
-    if(d.gainClean===undefined){d.gainClean=cleanGain(d.pts);dirty=true}
-    // cornering and braking worked out from gps, for phones that report no
-    // motion sensor. Kept beside d.g and d.smooth, never written over them.
-    if(d.ggV!==3){const gg=ggOf(d);
-      d.gGps=gg?gg.g:null;
-      d.smoothGps=gg?gg.smooth:null;
-      d.ggV=3;dirty=true}
-  });
+  let dirty=migrateDrives();
   if(settings.pbV!==1){if(markPbs())dirty=true;settings.pbV=1}
   else if(markPbs())dirty=true;
   if(idbOk||dirty){await saveV2(K_DRV,drives);await saveV2(K_CAR,cars);await saveV2(K_SET,settings)}
@@ -3820,6 +4173,7 @@ function renderStats(){
   $('statDays').innerHTML=chartDays(ds);
   $('statRose').innerHTML=chartCompass(ds);
   $('statBorders').innerHTML=bordersHtml();
+  $('statTerr').innerHTML=territoryHtml();
   $('statRegions').innerHTML=regionsHtml();
   $('statMonth').innerHTML=chartMonthly(ds);
   $('statLength').innerHTML=chartLength(ds);
@@ -4424,6 +4778,7 @@ openDrive=function(id){
   $('shLight').textContent=l?l.band:'–';
   renderDiary(id);
   renderXpBreak(id);
+  renderShCar(id);
 };
 
 /* ================================================================
@@ -5313,7 +5668,11 @@ function editCar(id){
         l100:v.l100?Number(v.l100)||null:null,
         price:v.price?Number(v.price)||null:null,
         year:yrOk?yr:null,
-        services:c?c.services||[]:[]
+        services:c?c.services||[]:[],
+        /* Object.assign below writes every key of rec over the car, so a flag
+           this form never asks about has to be carried through it or editing a
+           retired car quietly brings it back. */
+        retired:c?c.retired||null:null
       };
       if(c)Object.assign(c,rec); else cars.push(rec);
       if(!settings.activeCar){settings.activeCar=rec.id;await saveV2(K_SET,settings)}
@@ -5559,6 +5918,14 @@ function xpBreakdown(d){
   const bp=borderPushes().get(d.id);
   if(bp)out.push({k:'Pushed the border',v:Math.min(60,20+Math.round(bp.by/1000)*4),
     d:dirWord(bp.dir)+' by '+(bp.by/1000).toFixed(1)+' km'});
+  /* Ground the drive was the first to reach, in 1 km squares. Sits beside the
+     border push because both are geography, and both are replayed in order so
+     the drive keeps what it earned on the day. A border push pays for reaching
+     further out; this pays for covering ground, which is why a run that loops
+     sideways earns here and nothing there. */
+  const tg=territory().per.get(d.id);
+  if(tg)out.push({k:'Claimed ground',v:tg*TERR_XP,
+    d:tg+' km² for the first time'});
   if(d.pb)out.push({k:'Route best',v:40,d:'quickest run on this route at the time'});
   /* last, so it lifts everything above it and nothing lifts it */
   const ab=ageBoost(d);
@@ -5603,6 +5970,7 @@ function celebrate(level,gained,drive){
   el.animate?el.animate([{transform:'translateY(30px)',opacity:0},{transform:'none',opacity:1}],
     {duration:520,easing:'cubic-bezier(.2,1.3,.4,1)'}):null;
 }
+$('luClose').onclick=()=>$('levelUp').classList.remove('on');
 function floatXp(n){
   const host=$('xpFloat');if(!host)return;
   const s=document.createElement('span');
@@ -5783,4 +6151,4 @@ function economyXp(){
   });
   return xp;
 }
-function bonusXp(){return varietyXp()+serviceXp()+economyXp()+regionXp()}
+function bonusXp(){return varietyXp()+serviceXp()+economyXp()+regionXp()+carBondXp()}
