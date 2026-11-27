@@ -1,6 +1,6 @@
 /* shown in the Garage, so which code a phone is actually running is checkable
    rather than guessable */
-const BUILD='2026-11-25 · a trip log for the Belastingdienst · assets v43';
+const BUILD='2026-11-27 · the car buttons answer the tap · assets v44';
 
 /* ============ storage ============ */
 const K_DRV='odo.drives.v1', K_CAR='odo.cars.v1', K_SET='odo.settings.v1';
@@ -244,6 +244,16 @@ function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&
 function driveXp(d){
   return xpBreakdown(d).reduce((a,x)=>a+x.v,0);
 }
+/* A full render asks for every drive's xp half a dozen times over — the
+   header, the list, the garage, the review, where it comes from — and each
+   ask replays the drives before it for pbs, borders and new ground. So while
+   one render runs the answer is kept per drive. Nothing changes a drive in
+   the middle of a render, and the memo is gone the moment it ends, so it can
+   never hand back a number from before an edit. */
+let xpMemo=null;
+/* run f once the current frame is on screen: a tap is answered first and
+   the heavy work comes after, instead of the other way round */
+function afterPaint(f){requestAnimationFrame(()=>setTimeout(f,0))}
 const need=n=>50*n*n;
 function levelOf(xp){let n=1;while(xp>=need(n+1))n++;return n}
 function streak(){
@@ -1863,8 +1873,11 @@ async function stop(){
   markPbs();
   await saveV2(K_DRV,drives);
   fetchWeather(d).then(w=>{if(w){d.wx=w;saveV2(K_DRV,drives);render()}});
-  render();
-  await askCar(d);
+  /* the question first and the redraw behind it: a full render takes a
+     second or more on a phone, and the popup waiting on it felt broken */
+  const asked=askCar(d);
+  afterPaint(render);
+  await asked;
   await askTrip(d);
   const after=levelOf(drives.reduce((a,x)=>a+driveXp(x),0)+streak()*20+challengeXp()+bonusXp());
   const rt=buildRoutes().find(r=>r.runs.some(x=>x.id===d.id));
@@ -2085,16 +2098,19 @@ function askCar(d){
   $('caList').innerHTML=carButtons(pick,d.carId);
   box.classList.add('on');
   return new Promise(done=>{
-    $('caList').querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
+    $('caList').querySelectorAll('[data-car]').forEach(b=>b.onclick=()=>{
+      /* answer the tap in this frame; the save and the redraw wait for it to
+         be on screen, or the button looks dead for as long as they take */
+      $('caList').querySelectorAll('[data-car]').forEach(x=>x.classList.toggle('on',x===b));
+      const moved=d.carId!==b.dataset.car;
+      d.carId=b.dataset.car;
       box.classList.remove('on');
-      if(d.carId!==b.dataset.car){
-        d.carId=b.dataset.car;
-        await saveV2(K_DRV,drives);
-        render();
-      }
-      // the next drive is most likely in the same car
-      if(settings.activeCar!==d.carId){settings.activeCar=d.carId;await saveV2(K_SET,settings)}
-      done();
+      afterPaint(()=>{
+        if(moved){saveV2(K_DRV,drives);render()}
+        // the next drive is most likely in the same car
+        if(settings.activeCar!==d.carId){settings.activeCar=d.carId;saveV2(K_SET,settings)}
+        done();
+      });
     });
   });
 }
@@ -2116,13 +2132,17 @@ function renderShCar(id){
   box.innerHTML='<div class="cp-t">Car</div><div class="cp-row">'+carButtons(list,d.carId)+'</div>'+
     tripSheetHtml(d);
   wireTripSheet(d,id);
-  box.querySelectorAll('[data-car]').forEach(b=>b.onclick=async()=>{
+  box.querySelectorAll('[data-car]').forEach(b=>b.onclick=()=>{
     if(d.carId===b.dataset.car)return;
+    box.querySelectorAll('[data-car]').forEach(x=>x.classList.toggle('on',x===b));
     d.carId=b.dataset.car;
-    await saveV2(K_DRV,drives);
-    const c=carOf(d);
-    renderShCar(id);renderXpBreak(id);fuelCell(d);render();
-    toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
+    afterPaint(()=>{
+      saveV2(K_DRV,drives);
+      const c=carOf(d);
+      renderShCar(id);renderXpBreak(id);fuelCell(d);
+      toast('Logged to '+(c?c.name:'that car')+' · '+driveXp(d)+' xp');
+      afterPaint(render);
+    });
   });
 }
 
@@ -2318,9 +2338,10 @@ function tripSheetHtml(d){
 }
 function wireTripSheet(d,id){
   const box=$('shCar');if(!tripCar(d))return;
-  box.querySelectorAll('[data-kind]').forEach(b=>b.onclick=async()=>{
+  box.querySelectorAll('[data-kind]').forEach(b=>b.onclick=()=>{
     d.kind=d.kind===b.dataset.kind?null:b.dataset.kind;
-    await saveV2(K_DRV,drives);renderShCar(id);
+    box.querySelectorAll('[data-kind]').forEach(x=>x.classList.toggle('on',x.dataset.kind===d.kind));
+    afterPaint(()=>{saveV2(K_DRV,drives);renderShCar(id)});
   });
   const ed=$('tlEdit');if(ed)ed.onclick=()=>editTrip(d);
   const lk=$('tlLook');if(lk)lk.onclick=async()=>{
@@ -6470,3 +6491,20 @@ function economyXp(){
   return xp;
 }
 function bonusXp(){return varietyXp()+serviceXp()+economyXp()+regionXp()+carBondXp()}
+
+/* ---------- the render-scoped xp memo (see xpMemo) ---------- */
+{
+  const raw=xpBreakdown;
+  xpBreakdown=function(d){
+    if(!xpMemo)return raw(d);
+    let v=xpMemo.get(d);
+    if(!v){v=raw(d);xpMemo.set(d,v)}
+    return v;
+  };
+  const whole=render;
+  render=function(){
+    if(xpMemo)return whole();        // already inside one
+    xpMemo=new Map();
+    try{return whole()}finally{xpMemo=null}
+  };
+}
